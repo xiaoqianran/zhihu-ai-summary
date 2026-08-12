@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [2.9.0](https://github.com/summer-8848/zhihu-ai-summary/compare/v2.8.1...v2.9.0) (2026-08-12)
+
+
+### Features
+
+* 自动总结完成后接着生成图梳理 ([816fccb](https://github.com/summer-8848/zhihu-ai-summary/commit/816fccb341293f4f9e6a610fd55cc6eb1b897518))
+
 ## [2.8.1](https://github.com/summer-8848/zhihu-ai-summary/compare/v2.8.0...v2.8.1) (2026-08-12)
 
 
