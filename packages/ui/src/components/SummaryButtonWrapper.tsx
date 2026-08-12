@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { MarkdownFormatter, MarkdownParser, type APIClient, type ExtractedContent, type ConfigManager } from '@zhihu-ai-summary/core';
+import { MarkdownFormatter, MarkdownParser, renderSummaryMarkdown, type APIClient, type ExtractedContent, type ConfigManager } from '@zhihu-ai-summary/core';
 import { SummaryButton } from './SummaryButton';
 import { SummaryPanel } from './SummaryPanel';
 import { toast } from './Toast';
@@ -120,9 +120,8 @@ export function SummaryButtonWrapper({
       if (!isManualClick && !skipCache) {
         const cached = await configManager.getCachedSummary(cacheKey);
         if (cached) {
-          const cachedHtml = MarkdownParser.parse(cached.markdown);
           setMarkdown(cached.markdown);
-          setHtml(cachedHtml);
+          setHtml(renderSummaryMarkdown(cached.markdown));
           setCachedAt(cached.timestamp);
           setLoading(false);
           setStreaming(false);
@@ -140,20 +139,13 @@ export function SummaryButtonWrapper({
           fullMarkdown += chunk;
           const fullText = authorPrefix + fullMarkdown;
           setMarkdown(fullText);
-
-          const escaped = fullText
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/\n/g, '<br>');
-          setHtml(`<div style="white-space: pre-wrap;">${escaped}</div>`);
+          setHtml(renderSummaryMarkdown(fullText));
         },
         async () => {
           const fullText = authorPrefix + fullMarkdown;
           const formatted = MarkdownFormatter.format(fullText);
           setMarkdown(formatted);
-          const parsedHtml = MarkdownParser.parse(formatted);
-          setHtml(parsedHtml);
+          setHtml(MarkdownParser.parse(formatted));
           setLoading(false);
           setStreaming(false);
           restoreSideColumn();

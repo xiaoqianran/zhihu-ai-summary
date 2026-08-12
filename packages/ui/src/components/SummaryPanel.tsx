@@ -517,7 +517,7 @@ export function SummaryPanel({
             </div>
           ) : (
             <>
-              <div dangerouslySetInnerHTML={{ __html: content }} />
+              <div className="zhihu-ai-markdown-body" dangerouslySetInnerHTML={{ __html: content }} />
               {streaming && <span className="zhihu-ai-streaming-cursor"></span>}
             </>
           )}

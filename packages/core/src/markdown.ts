@@ -1,7 +1,72 @@
+const MARKDOWN_FENCE_LANGS = new Set(['markdown', 'md', 'gfm']);
+
+function looksLikeMarkdownDocument(text: string): boolean {
+  const sample = text.trim();
+  if (!sample) {
+    return false;
+  }
+  return (
+    /^(#{1,6}\s*\S)/m.test(sample) ||
+    /^([-*+•·]|－)\s+\S/m.test(sample) ||
+    /^\d+(?:\.|\)|、|．)\s+\S/m.test(sample) ||
+    /\*\*[^*\n]+\*\*/.test(sample) ||
+    /^>\s+\S/m.test(sample)
+  );
+}
+
 export class MarkdownParser {
+  /**
+   * Models often wrap the whole summary in a ```markdown fence.
+   * Unwrap those (including a trailing unclosed fence while streaming)
+   * so the inner markdown can actually render.
+   */
+  static unwrapMarkdownFences(markdown: string): string {
+    let text = markdown.replace(/\r\n?/g, '\n');
+
+    text = text.replace(/```(markdown|md|gfm)[ \t]*\n([\s\S]*?)```/gi, '$2');
+
+    text = text.replace(/```[ \t]*\n([\s\S]*?)```/g, (match, code: string) => {
+      return looksLikeMarkdownDocument(code) ? code : match;
+    });
+
+    // Streaming: drop only a still-open markdown/empty fence (never a closer)
+    const lines = text.split('\n');
+    let inFence = false;
+    let openIndex = -1;
+    let openLang = '';
+    for (let i = 0; i < lines.length; i++) {
+      const fence = lines[i].match(/^```([\w-]*)[ \t]*$/);
+      if (!fence) {
+        continue;
+      }
+      if (!inFence) {
+        inFence = true;
+        openIndex = i;
+        openLang = (fence[1] || '').toLowerCase();
+      } else {
+        inFence = false;
+        openIndex = -1;
+        openLang = '';
+      }
+    }
+
+    if (inFence && openIndex >= 0) {
+      const body = lines.slice(openIndex + 1).join('\n');
+      const shouldUnwrap =
+        MARKDOWN_FENCE_LANGS.has(openLang) ||
+        (openLang === '' && (!body.trim() || looksLikeMarkdownDocument(body)));
+      if (shouldUnwrap) {
+        lines.splice(openIndex, 1);
+        text = lines.join('\n');
+      }
+    }
+
+    return text;
+  }
+
   static parse(markdown: string): string {
     // Normalize newlines and avoid huge blank blocks
-    let html = markdown.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n');
+    let html = this.unwrapMarkdownFences(markdown).replace(/\n{3,}/g, '\n\n');
 
     // --- Placeholders (prevent markdown parsing inside code) ---
     const codeBlocks: Array<{ id: number; code: string; lang: string }> = [];
@@ -25,14 +90,26 @@ export class MarkdownParser {
     // 表格
     html = this.parseTable(html);
 
-    // 标题（从深到浅，避免 #### 被 ### 抢先匹配）
+    // 标题（从深到浅，避免 #### 被 ### 抢先匹配；允许 ##标题 这种无空格写法）
     html = html
-      .replace(/^######\s+(.+)$/gim, '<h6>$1</h6>')
-      .replace(/^#####\s+(.+)$/gim, '<h5>$1</h5>')
-      .replace(/^####\s+(.+)$/gim, '<h4>$1</h4>')
-      .replace(/^###\s+(.+)$/gim, '<h3>$1</h3>')
-      .replace(/^##\s+(.+)$/gim, '<h2>$1</h2>')
-      .replace(/^#\s+(.+)$/gim, '<h1>$1</h1>');
+      .replace(/^######\s*(.+)$/gim, '<h6>$1</h6>')
+      .replace(/^#####\s*(.+)$/gim, '<h5>$1</h5>')
+      .replace(/^####\s*(.+)$/gim, '<h4>$1</h4>')
+      .replace(/^###\s*(.+)$/gim, '<h3>$1</h3>')
+      .replace(/^##\s*(.+)$/gim, '<h2>$1</h2>')
+      .replace(/^#\s*(.+)$/gim, '<h1>$1</h1>');
+
+    // 分隔线
+    html = html.replace(/^(?:-{3,}|\*{3,}|_{3,})\s*$/gm, '<hr>');
+
+    // 引用
+    html = html.replace(/(^> ?.*(?:\n> ?.*)*)/gm, (block) => {
+      const inner = block
+        .split('\n')
+        .map((line) => line.replace(/^> ?/, ''))
+        .join('<br>');
+      return `<blockquote>${inner}</blockquote>`;
+    });
 
     // 高亮（常见扩展语法）：==text==
     html = html.replace(/==([^=][\s\S]*?[^=])==/g, '<mark>$1</mark>');
@@ -48,25 +125,7 @@ export class MarkdownParser {
     // 链接
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 
-    // 段落
-    html = html
-      .split('\n\n')
-      .map((block) => {
-        block = block.trim();
-        if (!block) {return '';}
-        if (
-          block.startsWith('<h') ||
-          block.startsWith('<ul>') ||
-          block.startsWith('<ol>') ||
-          block.startsWith('<pre>') ||
-          block.startsWith('<table')
-        ) {
-          return block;
-        }
-        return '<p>' + block.replace(/\n/g, ' ') + '</p>';
-      })
-      .filter((b) => b)
-      .join('');
+    html = this.wrapParagraphs(html);
 
     // Restore inline code placeholders
     if (inlineCodes.length > 0) {
@@ -262,8 +321,42 @@ export class MarkdownParser {
     return processed.join('\n');
   }
 
-  private static cleanHTML(html: string): string {
+  private static isBlockHtml(part: string): boolean {
+    return /^(?:<h[1-6]>[\s\S]*<\/h[1-6]>|<ul>[\s\S]*<\/ul>|<ol>[\s\S]*<\/ol>|<pre>[\s\S]*<\/pre>|<table[\s\S]*<\/table>|<blockquote>[\s\S]*<\/blockquote>|<hr\s*\/?>)$/.test(part);
+  }
+
+  private static wrapParagraphs(html: string): string {
+    const blockPattern =
+      /(<h[1-6]>[\s\S]*?<\/h[1-6]>|<ul>[\s\S]*?<\/ul>|<ol>[\s\S]*?<\/ol>|<pre>[\s\S]*?<\/pre>|<table[\s\S]*?<\/table>|<blockquote>[\s\S]*?<\/blockquote>|<hr\s*\/?>)/g;
+
     return html
+      .split(blockPattern)
+      .map((part) => {
+        if (!part || this.isBlockHtml(part)) {
+          return part || '';
+        }
+        return part
+          .split(/\n{2,}/)
+          .map((chunk) => {
+            const text = chunk.trim();
+            if (!text) {
+              return '';
+            }
+            return `<p>${text.replace(/\n+/g, ' ')}</p>`;
+          })
+          .join('');
+      })
+      .join('');
+  }
+
+  private static cleanHTML(html: string): string {
+    const pres: string[] = [];
+    const protectedHtml = html.replace(/<pre>[\s\S]*?<\/pre>/g, (block) => {
+      pres.push(block);
+      return `\0PRE${pres.length - 1}\0`;
+    });
+
+    const cleaned = protectedHtml
       .replace(/<p>\s*<\/p>/g, '')
       .replace(/<p>(<h[1-6]>)/g, '$1')
       .replace(/(<\/h[1-6]>)<\/p>/g, '$1')
@@ -275,8 +368,14 @@ export class MarkdownParser {
       .replace(/(<\/pre>)<\/p>/g, '$1')
       .replace(/<p>(<table)/g, '$1')
       .replace(/(<\/table>)<\/p>/g, '$1')
-      .replace(/\s{2,}/g, ' ')
+      .replace(/<p>(<blockquote)/g, '$1')
+      .replace(/(<\/blockquote>)<\/p>/g, '$1')
+      .replace(/<p>(<hr\b)/g, '$1')
       .trim();
+
+    return cleaned.replace(/\0PRE(\d+)\0/g, (_match, idStr: string) => {
+      return pres[Number(idStr)] ?? '';
+    });
   }
 
   private static escapeHTML(text: string): string {
@@ -304,14 +403,14 @@ export class MarkdownFormatter {
    * Goal: better headings/lists/bold highlights while preserving original semantics.
    */
   static format(markdown: string): string {
-    const normalized = markdown.replace(/\r\n?/g, '\n');
+    const normalized = MarkdownParser.unwrapMarkdownFences(markdown);
     const lines = normalized.split('\n');
     const out: string[] = [];
 
     let inFence = false;
     let fenceMarker: '```' | '~~~' | null = null;
 
-    const isHeading = (line: string) => /^#{1,6}\s+\S/.test(line.trim());
+    const isHeading = (line: string) => /^#{1,6}\s*\S/.test(line.trim());
     const isListLine = (line: string) => {
       const trimmed = line.trim();
       return (
@@ -426,4 +525,9 @@ export class MarkdownFormatter {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
+}
+
+/** Unwrap fences, light-format AI output, then convert to HTML. */
+export function renderSummaryMarkdown(markdown: string): string {
+  return MarkdownParser.parse(MarkdownFormatter.format(markdown));
 }
