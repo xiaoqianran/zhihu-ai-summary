@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [2.8.0](https://github.com/summer-8848/zhihu-ai-summary/compare/v2.7.0...v2.8.0) (2026-08-12)
+
+
+### Features
+
+* 总结与图梳理改为同一面板内标签切换 ([c9b3764](https://github.com/summer-8848/zhihu-ai-summary/commit/c9b37643490481b3b99236eeeef7ef7be227f492))
+
 ## 2.7.0 (2026-08-12)
 
 
