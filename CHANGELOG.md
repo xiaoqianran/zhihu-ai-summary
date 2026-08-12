@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [2.8.1](https://github.com/summer-8848/zhihu-ai-summary/compare/v2.8.0...v2.8.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* 图梳理修复成功后写回缓存避免再次渲染失败 ([0fe5fd9](https://github.com/summer-8848/zhihu-ai-summary/commit/0fe5fd9e673ddcae4de42a2e9654a4c8253f6455))
+
 ## [2.8.0](https://github.com/summer-8848/zhihu-ai-summary/compare/v2.7.0...v2.8.0) (2026-08-12)
 
 
