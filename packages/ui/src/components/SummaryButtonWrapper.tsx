@@ -47,10 +47,9 @@ export function SummaryButtonWrapper({
   minLength = 0,
   panelClassName = '',
 }: SummaryButtonWrapperProps) {
-  const [openMode, setOpenMode] = useState<GenerationMode | null>(null);
+  const [open, setOpen] = useState(false);
   const [activeMode, setActiveMode] = useState<GenerationMode>('summary');
-  const [loading, setLoading] = useState(false);
-  const [streaming, setStreaming] = useState(false);
+  const [generatingMode, setGeneratingMode] = useState<GenerationMode | null>(null);
   const [results, setResults] = useState<Record<GenerationMode, ModeResult>>({
     summary: emptyResult(),
     mermaid: emptyResult(),
@@ -58,8 +57,10 @@ export function SummaryButtonWrapper({
   const [sourceUrl, setSourceUrl] = useState(window.location.href);
   const [modelName, setModelName] = useState('AI');
   const cacheSavedRef = useRef(false);
+  const generatingModeRef = useRef<GenerationMode | null>(null);
 
-  const current = results[openMode ?? activeMode];
+  const current = results[activeMode];
+  const viewingBusy = generatingMode === activeMode;
 
   const hideSideColumn = () => {
     if (type !== 'answer') {
@@ -79,22 +80,34 @@ export function SummaryButtonWrapper({
     };
   };
 
-  const handleButtonClick = (mode: GenerationMode) => {
-    if (openMode === mode) {
-      setOpenMode(null);
-      return;
-    }
-    setActiveMode(mode);
-    if (streaming && activeMode === mode) {
-      void startGenerate(mode, false);
-      return;
-    }
+  const setGenerating = (mode: GenerationMode | null) => {
+    generatingModeRef.current = mode;
+    setGeneratingMode(mode);
+  };
+
+  const ensureModeContent = (mode: GenerationMode) => {
     const existing = results[mode];
     if (existing.html || existing.markdown) {
-      setOpenMode(mode);
+      return;
+    }
+    if (generatingModeRef.current) {
       return;
     }
     void startGenerate(mode, false);
+  };
+
+  const handleButtonClick = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    ensureModeContent(activeMode);
+  };
+
+  const handleModeChange = (mode: GenerationMode) => {
+    setActiveMode(mode);
+    ensureModeContent(mode);
   };
 
   const startGenerate = async (
@@ -102,12 +115,16 @@ export function SummaryButtonWrapper({
     isManualClick: boolean = true,
     skipCache: boolean = false
   ) => {
+    if (generatingModeRef.current && generatingModeRef.current !== mode) {
+      toast.error('请等待当前生成完成');
+      return;
+    }
+
     cacheSavedRef.current = false;
     const restoreSideColumn = hideSideColumn();
     setActiveMode(mode);
-    setOpenMode(mode);
-    setLoading(true);
-    setStreaming(true);
+    setOpen(true);
+    setGenerating(mode);
     setResults((prev) => ({
       ...prev,
       [mode]: { ...prev[mode], cachedAt: undefined },
@@ -143,8 +160,8 @@ export function SummaryButtonWrapper({
               mermaidHosts: [],
             },
           }));
-          setLoading(false);
-          setStreaming(false);
+          setGenerating(null);
+          restoreSideColumn();
           return;
         }
       }
@@ -166,8 +183,7 @@ export function SummaryButtonWrapper({
               cachedAt: cached.timestamp,
             },
           }));
-          setLoading(false);
-          setStreaming(false);
+          setGenerating(null);
           restoreSideColumn();
           return;
         }
@@ -209,8 +225,7 @@ export function SummaryButtonWrapper({
               mermaidHosts: rendered.hosts ?? [],
             },
           }));
-          setLoading(false);
-          setStreaming(false);
+          setGenerating(null);
           restoreSideColumn();
           if (!cacheSavedRef.current) {
             cacheSavedRef.current = true;
@@ -236,8 +251,7 @@ export function SummaryButtonWrapper({
           if (isManualClick) {
             toast.error(error.message || '生成失败');
           }
-          setLoading(false);
-          setStreaming(false);
+          setGenerating(null);
           restoreSideColumn();
         },
         { mode }
@@ -256,8 +270,7 @@ export function SummaryButtonWrapper({
       if (isManualClick) {
         toast.error(message);
       }
-      setLoading(false);
-      setStreaming(false);
+      setGenerating(null);
       restoreSideColumn();
     }
   };
@@ -284,38 +297,32 @@ export function SummaryButtonWrapper({
 
   return (
     <>
-      <span className="zhihu-ai-action-group">
-        <SummaryButton
-          text="AI总结"
-          loading={loading && activeMode === 'summary'}
-          onClick={() => handleButtonClick('summary')}
-          className={buttonClass}
-          variant="summary"
-        />
-        <SummaryButton
-          text="图梳理"
-          loading={loading && activeMode === 'mermaid'}
-          onClick={() => handleButtonClick('mermaid')}
-          className={`${buttonClass} zhihu-ai-summary-btn-mermaid`}
-          variant="mermaid"
-        />
-      </span>
-      {openMode && (
+      <SummaryButton
+        text="AI总结"
+        loading={generatingMode !== null}
+        onClick={handleButtonClick}
+        className={buttonClass}
+        variant="summary"
+      />
+      {open && (
         <SummaryPanel
           content={current.html}
           markdown={current.markdown}
           mermaidHosts={current.mermaidHosts}
           sourceUrl={sourceUrl}
-          loading={loading}
-          streaming={streaming}
+          loading={viewingBusy}
+          streaming={viewingBusy}
           cachedAt={current.cachedAt}
-          onClose={() => setOpenMode(null)}
+          onClose={() => setOpen(false)}
           onRefresh={() => startGenerate(activeMode, true, true)}
           onMermaidRepair={(source, error) => apiClient.repairMermaid(source, error)}
           title={titleMap[activeMode][type]}
           panelType={type}
           targetElement={targetElement}
-          className={`${panelClassName} ${openMode === 'mermaid' ? 'is-mermaid' : ''}`.trim()}
+          className={`${panelClassName} ${activeMode === 'mermaid' ? 'is-mermaid' : ''}`.trim()}
+          activeMode={activeMode}
+          onModeChange={handleModeChange}
+          actionsLocked={generatingMode !== null && generatingMode !== activeMode}
         />
       )}
     </>

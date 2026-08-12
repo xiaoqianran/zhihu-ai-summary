@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import type { GenerationMode } from '@zhihu-ai-summary/core';
 import { toast } from './Toast';
 import { bindThemeRoot } from '../theme';
 import { mountMermaidHosts } from '../mermaid/host';
@@ -23,6 +24,9 @@ interface SummaryPanelProps {
   targetElement?: Element;
   mermaidHosts?: MermaidHostSpec[];
   onMermaidRepair?: (source: string, error: string) => Promise<string>;
+  activeMode?: GenerationMode;
+  onModeChange?: (mode: GenerationMode) => void;
+  actionsLocked?: boolean;
 }
 
 export function SummaryPanel({
@@ -40,6 +44,9 @@ export function SummaryPanel({
   targetElement,
   mermaidHosts = [],
   onMermaidRepair,
+  activeMode = 'summary',
+  onModeChange,
+  actionsLocked = false,
 }: SummaryPanelProps) {
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -477,6 +484,57 @@ export function SummaryPanel({
   }, [panelType, targetElement]);
 
   useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || !targetElement) {
+      return;
+    }
+
+    const preferWide = activeMode === 'mermaid';
+    const preferredWidth = preferWide ? 560 : 400;
+    const minWidth = preferWide ? 320 : 300;
+    const gap = 16;
+
+    const getAnchor = (): HTMLElement | null => {
+      if (panelType === 'question') {
+        return (document.querySelector('.Question-mainColumn')
+          || document.querySelector('.QuestionHeader')) as HTMLElement | null;
+      }
+      if (panelType === 'answer') {
+        return targetElement.closest('.ContentItem.AnswerItem') as HTMLElement | null;
+      }
+      return (document.querySelector('.Post-Row-Content-left')
+        || document.querySelector('.Post-Row-Content')
+        || targetElement.closest('article')
+        || targetElement.closest('.Post-Main')) as HTMLElement | null;
+    };
+
+    const anchor = getAnchor();
+    if (!anchor) {
+      panel.style.width = `${preferredWidth}px`;
+      return;
+    }
+
+    const useFixedLeft = panel.classList.contains('zhihu-ai-panel-fixed')
+      || panel.classList.contains('question-fixed');
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const available = viewportWidth - rect.right - gap * 2;
+    const width = Math.max(minWidth, Math.min(preferredWidth, Math.max(available, minWidth)));
+    panel.style.width = `${Math.round(Math.min(width, Math.max(available, minWidth)))}px`;
+
+    if (useFixedLeft) {
+      let left = rect.right + gap;
+      const maxLeft = viewportWidth - Number.parseFloat(panel.style.width) - gap;
+      if (available >= minWidth) {
+        left = Math.min(left, maxLeft);
+      } else {
+        left = Math.max(rect.right + 8, maxLeft);
+      }
+      panel.style.left = `${Math.round(Math.max(gap, left))}px`;
+    }
+  }, [activeMode, panelType, targetElement]);
+
+  useEffect(() => {
     // 初始化 transform，避免浏览器计算差异导致首次拖动跳变
     applyDragTransform(dragOffsetRef.current.x, dragOffsetRef.current.y);
     const panel = panelRef.current;
@@ -519,6 +577,7 @@ export function SummaryPanel({
     <div
       ref={panelRef}
       className={`zhihu-ai-side-panel ${className} ${dragging ? 'zhihu-ai-side-panel--dragging' : ''}`}
+      aria-label={title}
     >
       <div className="zhihu-ai-answer-result">
         <div
@@ -526,18 +585,33 @@ export function SummaryPanel({
           onPointerDown={handleHeaderPointerDown}
           title="按住拖动面板"
         >
-          <svg viewBox="0 0 24 24" fill="none" width="16" height="16" aria-hidden="true">
-            <path d="M12 3.4l.78 3.78L16.6 8l-3.82.78L12 12.6l-.78-3.82L7.4 8l3.82-.82L12 3.4z" fill="currentColor" />
-            <path d="M18 13.2l.36 1.74 1.74.36-1.74.36L18 17.4l-.36-1.74-1.74-.36 1.74-.36L18 13.2z" fill="currentColor" opacity="0.7" />
-          </svg>
-          <span className="zhihu-ai-result-title">{title}</span>
+          <div className="zhihu-ai-panel-tabs" role="tablist" aria-label="梳理方式">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeMode === 'summary'}
+              className={`zhihu-ai-panel-tab ${activeMode === 'summary' ? 'is-active' : ''}`}
+              onClick={() => onModeChange?.('summary')}
+            >
+              AI总结
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeMode === 'mermaid'}
+              className={`zhihu-ai-panel-tab ${activeMode === 'mermaid' ? 'is-active' : ''}`}
+              onClick={() => onModeChange?.('mermaid')}
+            >
+              图梳理
+            </button>
+          </div>
           <div className="zhihu-ai-result-actions">
             <button
               type="button"
               className="zhihu-ai-result-copy"
               onClick={handleCopy}
-              title={copied ? '已复制' : streaming ? '请等待AI总结完成后再复制' : '复制Markdown格式'}
-              disabled={!content || streaming}
+              title={copied ? '已复制' : streaming || actionsLocked ? '请等待生成完成后再复制' : '复制Markdown格式'}
+              disabled={!content || streaming || actionsLocked}
               aria-label={copied ? '已复制' : '复制'}
             >
               {copied ? (
@@ -555,9 +629,9 @@ export function SummaryPanel({
               type="button"
               className="zhihu-ai-result-copy"
               onClick={onRefresh}
-              title={streaming ? '请等待AI总结完成后再重新总结' : '重新总结'}
-              disabled={!content || streaming}
-              aria-label="重新总结"
+              title={streaming || actionsLocked ? '请等待当前生成完成' : activeMode === 'mermaid' ? '重新梳理' : '重新总结'}
+              disabled={!onRefresh || streaming || actionsLocked}
+              aria-label={activeMode === 'mermaid' ? '重新梳理' : '重新总结'}
             >
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
                 <path d="M19.4 12a7.4 7.4 0 1 1-2.1-5.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -578,7 +652,7 @@ export function SummaryPanel({
           </div>
         </div>
 
-        <div className="zhihu-ai-answer-result-body">
+        <div className="zhihu-ai-answer-result-body" role="tabpanel">
           {cachedAt && (
             <div className="zhihu-ai-cache-chip">
               来自缓存 · {formatCachedTime(cachedAt)}
@@ -588,6 +662,20 @@ export function SummaryPanel({
             <div className="zhihu-ai-inline-loading">
               <div className="zhihu-ai-inline-spinner"></div>
               <span>AI正在分析内容，请稍候...</span>
+            </div>
+          ) : !content ? (
+            <div className="zhihu-ai-empty-mode">
+              <p>{actionsLocked ? '请等待另一项生成完成' : activeMode === 'mermaid' ? '尚未生成图梳理' : '尚未生成AI总结'}</p>
+              {onRefresh && (
+                <button
+                  type="button"
+                  className="zhihu-ai-empty-mode-btn"
+                  onClick={onRefresh}
+                  disabled={actionsLocked}
+                >
+                  {activeMode === 'mermaid' ? '开始图梳理' : '开始AI总结'}
+                </button>
+              )}
             </div>
           ) : (
             <>

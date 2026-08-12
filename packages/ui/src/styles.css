@@ -176,6 +176,8 @@ html[data-darkreader-mode="filter+"] .zhihu-ai-darkreader-lock {
 .zhihu-ai-result-copy:focus-visible,
 .zhihu-ai-answer-result-close:focus-visible,
 .zhihu-ai-tab:focus-visible,
+.zhihu-ai-panel-tab:focus-visible,
+.zhihu-ai-empty-mode-btn:focus-visible,
 .zhihu-ai-config-save:focus-visible {
   outline: 2px solid var(--zhihu-ai-azure);
   outline-offset: 2px;
@@ -237,6 +239,79 @@ html[data-darkreader-mode="filter+"] .zhihu-ai-darkreader-lock {
   font-weight: 650;
   letter-spacing: 0.01em;
   color: var(--zhihu-ai-ink);
+}
+
+.zhihu-ai-panel-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--zhihu-ai-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ctp-surface0) 86%, var(--ctp-mantle));
+}
+
+.zhihu-ai-panel-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--zhihu-ai-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.zhihu-ai-panel-tab:hover:not(.is-active) {
+  color: var(--zhihu-ai-ink);
+}
+
+.zhihu-ai-panel-tab.is-active {
+  background: var(--zhihu-ai-paper-raised);
+  color: var(--zhihu-ai-ink);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset, 0 4px 12px var(--zhihu-ai-primary-shadow-color);
+}
+
+.zhihu-ai-empty-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 2px 6px;
+  color: var(--zhihu-ai-muted);
+  font-size: 13px;
+}
+
+.zhihu-ai-empty-mode p {
+  margin: 0;
+}
+
+.zhihu-ai-empty-mode-btn {
+  appearance: none;
+  border: 1px solid var(--zhihu-ai-primary-border-color);
+  background: var(--zhihu-ai-azure-soft);
+  color: var(--zhihu-ai-azure);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.zhihu-ai-empty-mode-btn:hover:not(:disabled) {
+  background: var(--zhihu-ai-paper-raised);
+}
+
+.zhihu-ai-empty-mode-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .zhihu-ai-answer-result-header svg {
