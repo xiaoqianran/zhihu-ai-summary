@@ -3,6 +3,7 @@ import {
   MarkdownFormatter,
   MarkdownParser,
   renderSummaryMarkdown,
+  replaceMermaidBlock,
   type APIClient,
   type ExtractedContent,
   type ConfigManager,
@@ -58,6 +59,9 @@ export function SummaryButtonWrapper({
   const [modelName, setModelName] = useState('AI');
   const cacheSavedRef = useRef(false);
   const generatingModeRef = useRef<GenerationMode | null>(null);
+  const resultsRef = useRef(results);
+  const cacheKeyRef = useRef('');
+  resultsRef.current = results;
 
   const current = results[activeMode];
   const viewingBusy = generatingMode === activeMode;
@@ -108,6 +112,46 @@ export function SummaryButtonWrapper({
   const handleModeChange = (mode: GenerationMode) => {
     setActiveMode(mode);
     ensureModeContent(mode);
+  };
+
+  const persistMermaidRepair = (hostId: string, nextSource: string) => {
+    const currentMermaid = resultsRef.current.mermaid;
+    const index = currentMermaid.mermaidHosts.findIndex((item) => item.id === hostId);
+    if (index < 0) {
+      return;
+    }
+
+    const nextHosts = currentMermaid.mermaidHosts.map((item) => (
+      item.id === hostId ? { ...item, source: nextSource } : item
+    ));
+    let nextMarkdown = replaceMermaidBlock(currentMermaid.markdown, index, nextSource);
+    if (nextMarkdown === currentMermaid.markdown) {
+      let fenceIndex = 0;
+      nextMarkdown = currentMermaid.markdown.replace(/```mermaid[ \t]*\n([\s\S]*?)```/gi, (match) => {
+        const host = nextHosts[fenceIndex++];
+        return host ? `\`\`\`mermaid\n${host.source}\n\`\`\`` : match;
+      });
+    }
+
+    setResults((prev) => ({
+      ...prev,
+      mermaid: {
+        ...prev.mermaid,
+        markdown: nextMarkdown,
+        mermaidHosts: nextHosts,
+      },
+    }));
+
+    const cacheKey = cacheKeyRef.current;
+    if (!cacheKey || nextMarkdown === currentMermaid.markdown) {
+      return;
+    }
+    void configManager.setCachedSummary(cacheKey, {
+      markdown: nextMarkdown,
+      timestamp: Date.now(),
+    }).catch((error) => {
+      console.error('保存修复缓存失败:', error);
+    });
   };
 
   const startGenerate = async (
@@ -167,6 +211,7 @@ export function SummaryButtonWrapper({
       }
 
       const cacheKey = mode === 'mermaid' ? `${answerUrl}:${type}:mermaid` : `${answerUrl}:${type}`;
+      cacheKeyRef.current = cacheKey;
 
       if (!isManualClick && !skipCache) {
         const cached = await configManager.getCachedSummary(cacheKey);
@@ -316,6 +361,7 @@ export function SummaryButtonWrapper({
           onClose={() => setOpen(false)}
           onRefresh={() => startGenerate(activeMode, true, true)}
           onMermaidRepair={(source, error) => apiClient.repairMermaid(source, error)}
+          onMermaidRepaired={persistMermaidRepair}
           title={titleMap[activeMode][type]}
           panelType={type}
           targetElement={targetElement}

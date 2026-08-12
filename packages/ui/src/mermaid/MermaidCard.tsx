@@ -7,6 +7,7 @@ interface MermaidCardProps {
   source: string;
   title?: string;
   onRepair?: (source: string, error: string) => Promise<string>;
+  onRepaired?: (nextSource: string) => void;
 }
 
 type CardStatus = 'pending' | 'rendering' | 'ready' | 'error';
@@ -30,7 +31,7 @@ async function getMermaid() {
   return mermaidMod;
 }
 
-export function MermaidCard({ source, title = '流程图', onRepair }: MermaidCardProps) {
+export function MermaidCard({ source, title = '流程图', onRepair, onRepaired }: MermaidCardProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<CardStatus>('pending');
@@ -43,7 +44,7 @@ export function MermaidCard({ source, title = '流程图', onRepair }: MermaidCa
   const [fullscreen, setFullscreen] = useState(false);
   const renderIdRef = useRef(0);
 
-  const renderSource = async (nextSource: string) => {
+  const renderSource = async (nextSource: string): Promise<boolean> => {
     const renderId = ++renderIdRef.current;
     setStatus('rendering');
     setError('');
@@ -55,7 +56,7 @@ export function MermaidCard({ source, title = '流程图', onRepair }: MermaidCa
         return result.svg;
       });
       if (renderId !== renderIdRef.current) {
-        return;
+        return false;
       }
       const cleanSvg = DOMPurify.sanitize(svgText, {
         USE_PROFILES: { svg: true, svgFilters: true },
@@ -65,12 +66,14 @@ export function MermaidCard({ source, title = '流程图', onRepair }: MermaidCa
       setStatus('ready');
       setFitMode('fit');
       setScale(1);
+      return true;
     } catch (err) {
       if (renderId !== renderIdRef.current) {
-        return;
+        return false;
       }
       setStatus('error');
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     }
   };
 
@@ -115,7 +118,10 @@ export function MermaidCard({ source, title = '流程图', onRepair }: MermaidCa
     try {
       const fixed = await onRepair(workingSource, error || 'unknown mermaid error');
       setWorkingSource(fixed);
-      await renderSource(fixed);
+      const ok = await renderSource(fixed);
+      if (ok) {
+        onRepaired?.(fixed);
+      }
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : String(err));

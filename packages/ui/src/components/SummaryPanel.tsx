@@ -24,6 +24,7 @@ interface SummaryPanelProps {
   targetElement?: Element;
   mermaidHosts?: MermaidHostSpec[];
   onMermaidRepair?: (source: string, error: string) => Promise<string>;
+  onMermaidRepaired?: (id: string, nextSource: string) => void;
   activeMode?: GenerationMode;
   onModeChange?: (mode: GenerationMode) => void;
   actionsLocked?: boolean;
@@ -44,6 +45,7 @@ export function SummaryPanel({
   targetElement,
   mermaidHosts = [],
   onMermaidRepair,
+  onMermaidRepaired,
   activeMode = 'summary',
   onModeChange,
   actionsLocked = false,
@@ -64,6 +66,10 @@ export function SummaryPanel({
   };
   const panelRef = useRef<PanelElement>(null);
   const markdownRef = useRef<HTMLDivElement>(null);
+  const mermaidRepairRef = useRef(onMermaidRepair);
+  const mermaidRepairedRef = useRef(onMermaidRepaired);
+  mermaidRepairRef.current = onMermaidRepair;
+  mermaidRepairedRef.current = onMermaidRepaired;
   const originalParentRef = useRef<Element | null>(null);
   const contentCheckIntervalRef = useRef<number | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -550,9 +556,16 @@ export function SummaryPanel({
       return;
     }
     return mountMermaidHosts(markdownRef.current, mermaidHosts, {
-      onRepair: onMermaidRepair,
+      onRepair: (source, error) => {
+        const repair = mermaidRepairRef.current;
+        if (!repair) {
+          return Promise.reject(new Error('修复不可用'));
+        }
+        return repair(source, error);
+      },
+      onRepaired: (id, nextSource) => mermaidRepairedRef.current?.(id, nextSource),
     });
-  }, [content, mermaidHosts, streaming, onMermaidRepair]);
+  }, [content, streaming]);
 
   const handleCopy = async () => {
     try {

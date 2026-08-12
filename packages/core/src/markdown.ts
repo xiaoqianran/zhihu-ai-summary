@@ -559,3 +559,22 @@ export function extractMermaidBlocks(markdown: string): ExtractedMermaid {
   });
   return { markdown: replaced, blocks };
 }
+
+export function replaceMermaidBlock(markdown: string, index: number, nextSource: string): string {
+  const cleaned = cleanMermaidSource(nextSource);
+  if (!cleaned || index < 0) {
+    return markdown;
+  }
+
+  let current = 0;
+  let replaced = false;
+  const next = markdown.replace(/```mermaid[ \t]*\n([\s\S]*?)```/gi, (match) => {
+    const thisIndex = current++;
+    if (thisIndex !== index) {
+      return match;
+    }
+    replaced = true;
+    return `\`\`\`mermaid\n${cleaned}\n\`\`\``;
+  });
+  return replaced ? next : markdown;
+}

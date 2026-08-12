@@ -4,6 +4,7 @@ import type { MermaidHostSpec } from './document';
 
 export interface MermaidHostOptions {
   onRepair?: (source: string, error: string) => Promise<string>;
+  onRepaired?: (id: string, nextSource: string) => void;
 }
 
 export function mountMermaidHosts(
@@ -31,6 +32,7 @@ export function mountMermaidHosts(
         source={source}
         title={index >= 0 ? `图 ${index + 1}` : '流程图'}
         onRepair={options.onRepair}
+        onRepaired={id ? (nextSource) => options.onRepaired?.(id, nextSource) : undefined}
       />,
       node
     );
