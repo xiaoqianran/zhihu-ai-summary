@@ -1,5 +1,11 @@
-import type { ConfigManager } from './config';
+import {
+  DEFAULT_SUMMARY_SYSTEM_PROMPT,
+  DEFAULT_SUMMARY_USER_PROMPT,
+  type ConfigManager,
+} from './config';
 import type { ExtractedContent, ArticleContent, QuestionContent, AnswerContent } from './extractor';
+
+const CONTENT_LIMIT = 3000;
 
 export function normalizeChatCompletionsUrl(input: string): string {
   const trimmed = input.trim();
@@ -64,17 +70,66 @@ export class APIClient {
     }
   }
 
-  private generatePrompt(content: ExtractedContent): string {
+  private buildSourceBlock(content: ExtractedContent): { text: string; vars: Record<string, string> } {
     if (content.type === 'article') {
       const article = content as ArticleContent;
-      return `请对以下知乎文章进行总结，提取关键信息和要点：\n\n标题：${article.title}\n\n内容：${article.content.substring(0, 3000)}\n\n要求：\n- 使用清晰的分段和标题\n- 关键点用列表形式展示\n- 避免使用表格`;
+      const title = article.title;
+      const body = article.content.substring(0, CONTENT_LIMIT);
+      return {
+        text: `【知乎文章】\n标题：${title}\n\n内容：${body}`,
+        vars: { title, content: body, author: '', question: title, questionDesc: '' },
+      };
     }
     if (content.type === 'question') {
       const question = content as QuestionContent;
-      return `请详细总结以下知乎问题：\n\n问题：${question.title}\n\n描述：${question.content.substring(0, 3000)}\n\n请从以下方面进行总结：\n1. **核心疑问**：用1-2句话说明提问者的主要困惑或需求\n2. **背景信息**：列出问题中提到的关键背景、场景或前提条件\n3. **具体诉求**：提问者希望得到什么样的答案或建议\n\n要求：\n- 信息要具体完整，不要遗漏重要细节\n- 使用清晰的标题和列表展示\n- 避免使用表格`;
+      const title = question.title;
+      const body = question.content.substring(0, CONTENT_LIMIT);
+      return {
+        text: `【知乎问题】\n问题：${title}\n\n描述：${body}`,
+        vars: { title, content: body, author: '', question: title, questionDesc: body },
+      };
     }
     const answer = content as AnswerContent;
-    return `请基于以下知乎问题，详细分析该回答：\n\n【问题】\n标题：${answer.questionTitle}\n描述：${answer.questionDesc}\n\n【回答】\n作者：${answer.author}\n内容：${answer.content.substring(0, 3000)}\n\n请从以下方面进行分析：\n1. **核心观点**：总结回答的主要论点和结论（2-3句话）\n2. **关键论据**：列出回答中的重要依据、数据、案例或事实（至少3点）\n3. **实用建议**：如果回答中有具体建议或方法，请明确列出\n4. **价值评估**：简短评价该回答是否切题、论据是否充分、是否有实用价值（1-2句话）\n\n要求：\n- 提取的信息要具体完整，保留关键数据和细节\n- 用清晰的格式输出，使用标题和列表\n- 避免使用表格`;
+    const body = answer.content.substring(0, CONTENT_LIMIT);
+    return {
+      text: `【知乎回答】\n问题：${answer.questionTitle}\n问题描述：${answer.questionDesc}\n作者：${answer.author}\n\n内容：${body}`,
+      vars: {
+        title: answer.questionTitle,
+        content: body,
+        author: answer.author,
+        question: answer.questionTitle,
+        questionDesc: answer.questionDesc,
+      },
+    };
+  }
+
+  private applyPromptTemplate(template: string, vars: Record<string, string>): string | null {
+    if (!/\{\{\w+\}\}/.test(template)) {
+      return null;
+    }
+    return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? '');
+  }
+
+  private async generatePrompt(content: ExtractedContent): Promise<string> {
+    const stored = (await this.configManager.get('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT)) ?? DEFAULT_SUMMARY_USER_PROMPT;
+    const instruction = stored.trim() || DEFAULT_SUMMARY_USER_PROMPT;
+    const source = this.buildSourceBlock(content);
+    const templated = this.applyPromptTemplate(instruction, source.vars);
+    if (templated !== null) {
+      return templated;
+    }
+    return `${source.text}\n\n要求：${instruction}`;
+  }
+
+  private async buildMessages(content: ExtractedContent): Promise<Array<{ role: 'system' | 'user'; content: string }>> {
+    const storedSystem = (await this.configManager.get('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT)) ?? DEFAULT_SUMMARY_SYSTEM_PROMPT;
+    const systemPrompt = storedSystem.trim();
+    const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+    messages.push({ role: 'user', content: await this.generatePrompt(content) });
+    return messages;
   }
 
   async testConnection(apiKey: string, apiUrl: string, model: string): Promise<APIResponse> {
@@ -131,14 +186,7 @@ export class APIClient {
         },
         body: JSON.stringify({
           model: this.model,
-          messages: [
-            {
-              role: 'system',
-              content:
-                '你是一个专业的内容总结助手，擅长提取关键信息并进行简洁准确的总结。请使用清晰的Markdown格式，优先使用列表、标题和段落，避免使用表格，保持输出简洁易读。',
-            },
-            { role: 'user', content: this.generatePrompt(content) },
-          ],
+          messages: await this.buildMessages(content),
           stream: true,
         }),
       });

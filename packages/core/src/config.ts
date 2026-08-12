@@ -19,6 +19,9 @@ export interface CachedSummary {
   timestamp: number;
 }
 
+export const DEFAULT_SUMMARY_SYSTEM_PROMPT = '梳理内容';
+export const DEFAULT_SUMMARY_USER_PROMPT = '梳理内容';
+
 // 配置键到值的映射（用于强类型 get/set）
 export interface ConfigValueMap {
   AI_ACCOUNTS: Account[];
@@ -27,6 +30,8 @@ export interface ConfigValueMap {
   MIN_ANSWER_LENGTH: number;
   SUMMARY_CACHE: Record<string, CachedSummary>;
   SUMMARY_CACHE_SIZE: number;
+  SUMMARY_SYSTEM_PROMPT: string;
+  SUMMARY_USER_PROMPT: string;
 }
 
 export type ConfigKey = keyof ConfigValueMap;
@@ -92,6 +97,8 @@ export class ConfigManager {
       AUTO_SUMMARIZE: (await this.get('AUTO_SUMMARIZE', false)) ?? false,
       MIN_ANSWER_LENGTH: (await this.get('MIN_ANSWER_LENGTH', 200)) ?? 200,
       SUMMARY_CACHE_SIZE: (await this.get('SUMMARY_CACHE_SIZE', 100)) ?? 100,
+      SUMMARY_SYSTEM_PROMPT: (await this.get('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT)) ?? DEFAULT_SUMMARY_SYSTEM_PROMPT,
+      SUMMARY_USER_PROMPT: (await this.get('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT)) ?? DEFAULT_SUMMARY_USER_PROMPT,
     };
     return JSON.stringify(configs, null, 2);
   }
@@ -112,6 +119,8 @@ export class ConfigManager {
     await this.set('CURRENT_ACCOUNT_ID', '');
     await this.set('AUTO_SUMMARIZE', false);
     await this.set('MIN_ANSWER_LENGTH', 200);
+    await this.set('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT);
+    await this.set('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT);
   }
 
   // 获取缓存的总结结果

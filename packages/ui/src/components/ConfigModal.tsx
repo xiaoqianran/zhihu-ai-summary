@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'preact/hooks';
-import { normalizeChatCompletionsUrl } from '@zhihu-ai-summary/core';
+import {
+  DEFAULT_SUMMARY_SYSTEM_PROMPT,
+  DEFAULT_SUMMARY_USER_PROMPT,
+  normalizeChatCompletionsUrl,
+} from '@zhihu-ai-summary/core';
 import type { Account, ConfigManager, APIClient } from '@zhihu-ai-summary/core';
 import { toast } from './Toast';
 import { InputModal } from './InputModal';
@@ -28,6 +32,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
   const [cacheSize, setCacheSize] = useState(100);
   const [cacheCount, setCacheCount] = useState(0);
   const [cacheStorageSize, setCacheStorageSize] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SUMMARY_SYSTEM_PROMPT);
+  const [userPrompt, setUserPrompt] = useState(DEFAULT_SUMMARY_USER_PROMPT);
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [copyingAccountId, setCopyingAccountId] = useState<string | null>(null);
@@ -53,6 +59,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
     const cachedSize = await configManager.get('SUMMARY_CACHE_SIZE', 100);
     const cachedCount = await configManager.getCacheCount();
     const storageSize = await configManager.getCacheStorageSize();
+    const storedSystemPrompt = await configManager.get('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT);
+    const storedUserPrompt = await configManager.get('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT);
 
     setAccounts(accs);
     setCurrentAccountId(currentId);
@@ -61,6 +69,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
     setCacheSize(cachedSize);
     setCacheCount(cachedCount);
     setCacheStorageSize(storageSize);
+    setSystemPrompt(storedSystemPrompt ?? DEFAULT_SUMMARY_SYSTEM_PROMPT);
+    setUserPrompt(storedUserPrompt ?? DEFAULT_SUMMARY_USER_PROMPT);
   };
 
   const handleSelectAccount = async (accountId: string) => {
@@ -123,13 +133,19 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
 
   const handleSaveSettings = async () => {
     try {
+      const nextSystemPrompt = systemPrompt.trim();
+      const nextUserPrompt = userPrompt.trim() || DEFAULT_SUMMARY_USER_PROMPT;
       const ok1 = await configManager.set('AUTO_SUMMARIZE', autoSummarize);
       const ok2 = await configManager.set('MIN_ANSWER_LENGTH', minAnswerLength);
       const ok3 = await configManager.set('SUMMARY_CACHE_SIZE', cacheSize);
-      if (!ok1 || !ok2 || !ok3) {
+      const ok4 = await configManager.set('SUMMARY_SYSTEM_PROMPT', nextSystemPrompt);
+      const ok5 = await configManager.set('SUMMARY_USER_PROMPT', nextUserPrompt);
+      if (!ok1 || !ok2 || !ok3 || !ok4 || !ok5) {
         toast.error('设置保存失败');
         return;
       }
+      setSystemPrompt(nextSystemPrompt);
+      setUserPrompt(nextUserPrompt);
       toast.success('设置已保存！');
     } catch (error) {
       console.error('设置保存失败:', error);
@@ -469,6 +485,58 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                         >
                           清空缓存
                         </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ border: '1px solid #e5e5e5', borderRadius: '8px', padding: '16px', background: '#fff' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#1a1a1a' }}>提示词</div>
+                      <button
+                        type="button"
+                        className="zhihu-ai-prompt-reset"
+                        onClick={() => {
+                          setSystemPrompt(DEFAULT_SUMMARY_SYSTEM_PROMPT);
+                          setUserPrompt(DEFAULT_SUMMARY_USER_PROMPT);
+                        }}
+                      >
+                        恢复默认
+                      </button>
+                    </div>
+                    <div className="zhihu-ai-config-item">
+                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-system-prompt" style={{ fontSize: '13px' }}>系统提示词</label>
+                      <textarea
+                        id="zhihu-ai-system-prompt"
+                        className="zhihu-ai-config-textarea"
+                        value={systemPrompt}
+                        rows={3}
+                        placeholder={DEFAULT_SUMMARY_SYSTEM_PROMPT}
+                        onInput={(e) => setSystemPrompt((e.target as HTMLTextAreaElement).value)}
+                      />
+                    </div>
+                    <div className="zhihu-ai-config-item" style={{ marginBottom: 0 }}>
+                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-user-prompt" style={{ fontSize: '13px' }}>用户要求</label>
+                      <textarea
+                        id="zhihu-ai-user-prompt"
+                        className="zhihu-ai-config-textarea"
+                        value={userPrompt}
+                        rows={5}
+                        placeholder={DEFAULT_SUMMARY_USER_PROMPT}
+                        onInput={(e) => setUserPrompt((e.target as HTMLTextAreaElement).value)}
+                      />
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '6px', lineHeight: 1.6 }}>
+                        默认只要「梳理内容」。正文会自动附在后面。若自己写完整模板，可用
+                        {' '}
+                        <code>{'{{title}}'}</code>
+                        {' '}
+                        <code>{'{{content}}'}</code>
+                        {' '}
+                        <code>{'{{author}}'}</code>
+                        {' '}
+                        <code>{'{{question}}'}</code>
+                        {' '}
+                        <code>{'{{questionDesc}}'}</code>
+                        。
                       </div>
                     </div>
                   </div>

@@ -15,6 +15,13 @@ const author = rootPackageJson.author;
 const homepage = rootPackageJson.homepage;
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@zhihu-ai-summary/ui/src/styles.css': resolve(__dirname, '../ui/src/styles.css'),
+      '@zhihu-ai-summary/ui': resolve(__dirname, '../ui/src/index.ts'),
+      '@zhihu-ai-summary/core': resolve(__dirname, '../core/src/index.ts'),
+    },
+  },
   plugins: [
     preact(),
     monkey({
