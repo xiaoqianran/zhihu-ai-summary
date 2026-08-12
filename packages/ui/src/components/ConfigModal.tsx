@@ -450,7 +450,7 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                           <span>打开后自动总结</span>
                         </label>
                         <div className="zhihu-ai-field-hint">
-                          页面就绪后，自动梳理文章与回答。
+                          页面就绪后，自动梳理文章与回答；总结完成后会接着跑图梳理。
                         </div>
                       </div>
                       <div className="zhihu-ai-config-item is-flush">

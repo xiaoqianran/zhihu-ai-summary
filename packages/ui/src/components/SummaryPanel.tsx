@@ -623,8 +623,8 @@ export function SummaryPanel({
               type="button"
               className="zhihu-ai-result-copy"
               onClick={handleCopy}
-              title={copied ? '已复制' : streaming || actionsLocked ? '请等待生成完成后再复制' : '复制Markdown格式'}
-              disabled={!content || streaming || actionsLocked}
+              title={copied ? '已复制' : streaming ? '请等待生成完成后再复制' : '复制Markdown格式'}
+              disabled={!content || streaming}
               aria-label={copied ? '已复制' : '复制'}
             >
               {copied ? (

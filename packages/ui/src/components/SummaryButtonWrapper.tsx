@@ -154,20 +154,35 @@ export function SummaryButtonWrapper({
     });
   };
 
+  const followMermaidIfNeeded = (mode: GenerationMode) => {
+    if (mode !== 'summary') {
+      return;
+    }
+    const mermaid = resultsRef.current.mermaid;
+    if (mermaid.html || mermaid.markdown) {
+      return;
+    }
+    void startGenerate('mermaid', false, false, { activate: false });
+  };
+
   const startGenerate = async (
     mode: GenerationMode,
     isManualClick: boolean = true,
-    skipCache: boolean = false
+    skipCache: boolean = false,
+    options: { activate?: boolean } = {}
   ) => {
     if (generatingModeRef.current && generatingModeRef.current !== mode) {
       toast.error('请等待当前生成完成');
       return;
     }
 
+    const activate = options.activate !== false;
     cacheSavedRef.current = false;
     const restoreSideColumn = hideSideColumn();
-    setActiveMode(mode);
-    setOpen(true);
+    if (activate) {
+      setActiveMode(mode);
+      setOpen(true);
+    }
     setGenerating(mode);
     setResults((prev) => ({
       ...prev,
@@ -230,6 +245,7 @@ export function SummaryButtonWrapper({
           }));
           setGenerating(null);
           restoreSideColumn();
+          followMermaidIfNeeded(mode);
           return;
         }
       }
@@ -283,6 +299,7 @@ export function SummaryButtonWrapper({
               console.error('保存缓存失败:', e);
             }
           }
+          followMermaidIfNeeded(mode);
         },
         (error) => {
           setResults((prev) => ({
