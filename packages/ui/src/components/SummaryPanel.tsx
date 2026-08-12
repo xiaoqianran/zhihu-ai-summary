@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { toast } from './Toast';
+import { bindThemeRoot } from '../theme';
+import { mountMermaidHosts } from '../mermaid/host';
+import type { MermaidHostSpec } from '../mermaid/document';
 
 interface PanelElement extends HTMLDivElement {
   __cleanup?: () => void;
@@ -18,6 +21,8 @@ interface SummaryPanelProps {
   title?: string;
   panelType?: 'answer' | 'article' | 'question';
   targetElement?: Element;
+  mermaidHosts?: MermaidHostSpec[];
+  onMermaidRepair?: (source: string, error: string) => Promise<string>;
 }
 
 export function SummaryPanel({
@@ -32,7 +37,9 @@ export function SummaryPanel({
   className = '',
   title = 'AI总结',
   panelType = 'answer',
-  targetElement
+  targetElement,
+  mermaidHosts = [],
+  onMermaidRepair,
 }: SummaryPanelProps) {
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -49,6 +56,7 @@ export function SummaryPanel({
     return `${days}天前`;
   };
   const panelRef = useRef<PanelElement>(null);
+  const markdownRef = useRef<HTMLDivElement>(null);
   const originalParentRef = useRef<Element | null>(null);
   const contentCheckIntervalRef = useRef<number | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -269,6 +277,36 @@ export function SummaryPanel({
     const headerOffset = 70;
     const questionTopOffset = 135;
     const viewportBottomGap = 24;
+    const preferWide = panel.classList.contains('is-mermaid');
+    const preferredWidth = preferWide ? 560 : 400;
+    const minWidth = preferWide ? 320 : 300;
+
+    const pinBeside = (anchor: HTMLElement, useFixedLeft: boolean) => {
+      const gap = 16;
+      const rect = anchor.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const available = viewportWidth - rect.right - gap * 2;
+      const width = Math.max(minWidth, Math.min(preferredWidth, Math.max(available, minWidth)));
+      panel.style.width = `${Math.round(Math.min(width, Math.max(available, minWidth)))}px`;
+
+      if (useFixedLeft) {
+        let left = rect.right + gap;
+        const maxLeft = viewportWidth - Number.parseFloat(panel.style.width) - gap;
+        if (available >= minWidth) {
+          left = Math.min(left, maxLeft);
+        } else {
+          left = Math.max(rect.right + 8, maxLeft);
+        }
+        panel.style.left = `${Math.round(Math.max(gap, left))}px`;
+        panel.style.marginLeft = '0';
+      } else {
+        panel.style.left = '100%';
+        panel.style.marginLeft = `${gap}px`;
+        if (available > 0) {
+          panel.style.width = `${Math.round(Math.min(preferredWidth, available))}px`;
+        }
+      }
+    };
 
     const applyFixedForBody = () => {
       panel.classList.add('zhihu-ai-panel-fixed');
@@ -279,9 +317,14 @@ export function SummaryPanel({
       panel.classList.add('question-fixed');
       parentElement = document.body;
       panel.classList.add('zhihu-ai-panel-fixed');
+      const questionColumn = document.querySelector('.Question-mainColumn') as HTMLElement | null
+        || document.querySelector('.QuestionHeader') as HTMLElement | null;
       const updateQuestionMaxHeight = () => {
         panel.style.overflowY = 'auto';
         panel.style.maxHeight = `${Math.max(200, window.innerHeight - questionTopOffset - viewportBottomGap)}px`;
+        if (questionColumn) {
+          pinBeside(questionColumn, true);
+        }
       };
 
       updateQuestionMaxHeight();
@@ -304,8 +347,13 @@ export function SummaryPanel({
           elem.style.position = 'relative';
         }
 
-        // 初始化面板高度
+        // 初始化面板高度，并限制在正文右侧空白里
         updatePanelHeight();
+        pinBeside(elem, false);
+        const onResizeAnswer = () => {
+          pinBeside(elem, false);
+        };
+        window.addEventListener('resize', onResizeAnswer);
 
         // 使用 ResizeObserver 监听回答元素高度变化
         const resizeObserver = new ResizeObserver(() => {
@@ -333,6 +381,7 @@ export function SummaryPanel({
             clearTimeout(updateTimer);
             updateTimer = null;
           }
+          window.removeEventListener('resize', onResizeAnswer);
           resizeObserver.disconnect();
           mutationObserver.disconnect();
         };
@@ -360,22 +409,18 @@ export function SummaryPanel({
         const updateArticleAffix = () => {
           const rect = elem.getBoundingClientRect();
           if (rect.top < headerOffset) {
-            // 切到 fixed 时，需要把 left 锁定在“正文右侧”
-            const left = rect.right + 25;
-            panel.style.left = `${Math.round(left)}px`;
             panel.style.top = `${headerOffset}px`;
             panel.style.overflowY = 'auto';
             panel.style.maxHeight = `${Math.max(200, window.innerHeight - headerOffset - viewportBottomGap)}px`;
             applyFixedForBody();
+            pinBeside(elem, true);
           } else {
-            // 还原到容器内定位
             panel.classList.remove('zhihu-ai-panel-fixed');
-            panel.style.left = '100%';
             panel.style.top = '0';
             panel.style.overflowY = 'auto';
-            // 面板在容器内时，面板实际 top 与容器 top 一致（相对 viewport）
             panel.style.maxHeight = `${Math.max(200, window.innerHeight - rect.top - viewportBottomGap)}px`;
             parentElement = articleContainer;
+            pinBeside(elem, false);
           }
 
           // 按需移动 DOM
@@ -434,10 +479,22 @@ export function SummaryPanel({
   useEffect(() => {
     // 初始化 transform，避免浏览器计算差异导致首次拖动跳变
     applyDragTransform(dragOffsetRef.current.x, dragOffsetRef.current.y);
+    const panel = panelRef.current;
+    const unbindTheme = panel ? bindThemeRoot(panel) : undefined;
     return () => {
+      unbindTheme?.();
       endDrag();
     };
   }, []);
+
+  useEffect(() => {
+    if (streaming || !markdownRef.current || mermaidHosts.length === 0) {
+      return;
+    }
+    return mountMermaidHosts(markdownRef.current, mermaidHosts, {
+      onRepair: onMermaidRepair,
+    });
+  }, [content, mermaidHosts, streaming, onMermaidRepair]);
 
   const handleCopy = async () => {
     try {
@@ -469,9 +526,9 @@ export function SummaryPanel({
           onPointerDown={handleHeaderPointerDown}
           title="按住拖动面板"
         >
-          <svg viewBox="0 0 1024 1024" fill="currentColor" width="18" height="18" aria-hidden="true">
-            <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64z m0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z"/>
-            <path d="M464 336a48 48 0 1 0 96 0 48 48 0 1 0-96 0z m72 112h-48c-4.4 0-8 3.6-8 8v272c0 4.4 3.6 8 8 8h48c4.4 0 8-3.6 8-8V456c0-4.4-3.6-8-8-8z"/>
+          <svg viewBox="0 0 24 24" fill="none" width="16" height="16" aria-hidden="true">
+            <path d="M12 3.4l.78 3.78L16.6 8l-3.82.78L12 12.6l-.78-3.82L7.4 8l3.82-.82L12 3.4z" fill="currentColor" />
+            <path d="M18 13.2l.36 1.74 1.74.36-1.74.36L18 17.4l-.36-1.74-1.74-.36 1.74-.36L18 13.2z" fill="currentColor" opacity="0.7" />
           </svg>
           <span className="zhihu-ai-result-title">{title}</span>
           <div className="zhihu-ai-result-actions">
@@ -481,8 +538,18 @@ export function SummaryPanel({
               onClick={handleCopy}
               title={copied ? '已复制' : streaming ? '请等待AI总结完成后再复制' : '复制Markdown格式'}
               disabled={!content || streaming}
+              aria-label={copied ? '已复制' : '复制'}
             >
-              {copied ? '✅' : '📋'}
+              {copied ? (
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                  <path d="M5 12.5l4.2 4.2L19 7.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                  <rect x="8" y="8" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.6" />
+                  <path d="M6 15.5V6.8A1.8 1.8 0 0 1 7.8 5H16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              )}
             </button>
             <button
               type="button"
@@ -490,24 +557,31 @@ export function SummaryPanel({
               onClick={onRefresh}
               title={streaming ? '请等待AI总结完成后再重新总结' : '重新总结'}
               disabled={!content || streaming}
+              aria-label="重新总结"
             >
-              🔄
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                <path d="M19.4 12a7.4 7.4 0 1 1-2.1-5.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                <path d="M17.2 3.8v3.8H21" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
             <button
               type="button"
               className="zhihu-ai-answer-result-close"
               onClick={onClose}
               title="关闭"
+              aria-label="关闭"
             >
-              ×
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              </svg>
             </button>
           </div>
         </div>
 
         <div className="zhihu-ai-answer-result-body">
           {cachedAt && (
-            <div style={{ fontSize: '12px', color: '#999', padding: '4px 0', marginBottom: '4px', borderBottom: '1px solid #eee' }}>
-              来自缓存 · {formatCachedTime(cachedAt)}，点击上方刷新按钮可重新总结
+            <div className="zhihu-ai-cache-chip">
+              来自缓存 · {formatCachedTime(cachedAt)}
             </div>
           )}
           {!content && loading ? (
@@ -517,7 +591,11 @@ export function SummaryPanel({
             </div>
           ) : (
             <>
-              <div className="zhihu-ai-markdown-body" dangerouslySetInnerHTML={{ __html: content }} />
+              <div
+                ref={markdownRef}
+                className="zhihu-ai-markdown-body"
+                dangerouslySetInnerHTML={{ __html: content }}
+              />
               {streaming && <span className="zhihu-ai-streaming-cursor"></span>}
             </>
           )}

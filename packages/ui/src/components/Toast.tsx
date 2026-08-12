@@ -1,5 +1,6 @@
 import { render } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
+import { bindThemeRoot } from '../theme';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -52,8 +53,9 @@ class ToastManager {
   private ensureContainer() {
     if (!this.container) {
       this.container = document.createElement('div');
-      this.container.className = 'zhihu-ai-toast-container';
+      this.container.className = 'zhihu-ai-toast-container zhihu-ai-theme-root';
       document.body.appendChild(this.container);
+      bindThemeRoot(this.container);
     }
     return this.container;
   }

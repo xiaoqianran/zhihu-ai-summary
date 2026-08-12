@@ -27,6 +27,9 @@
   "license": "MIT",
   "dependencies": {
     "@zhihu-ai-summary/core": "workspace:*",
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9",
+    "mermaid": "^11.16.1",
     "preact": "^10.19.3"
   },
   "devDependencies": {

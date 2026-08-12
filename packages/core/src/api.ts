@@ -1,7 +1,10 @@
 import {
+  DEFAULT_MERMAID_SYSTEM_PROMPT,
+  DEFAULT_MERMAID_USER_PROMPT,
   DEFAULT_SUMMARY_SYSTEM_PROMPT,
   DEFAULT_SUMMARY_USER_PROMPT,
   type ConfigManager,
+  type GenerationMode,
 } from './config';
 import type { ExtractedContent, ArticleContent, QuestionContent, AnswerContent } from './extractor';
 
@@ -110,9 +113,17 @@ export class APIClient {
     return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? '');
   }
 
-  private async generatePrompt(content: ExtractedContent): Promise<string> {
-    const stored = (await this.configManager.get('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT)) ?? DEFAULT_SUMMARY_USER_PROMPT;
-    const instruction = stored.trim() || DEFAULT_SUMMARY_USER_PROMPT;
+  private async generatePrompt(content: ExtractedContent, mode: GenerationMode = 'summary'): Promise<string> {
+    const defaultUser = mode === 'mermaid' ? DEFAULT_MERMAID_USER_PROMPT : DEFAULT_SUMMARY_USER_PROMPT;
+    const storedRaw = (
+      mode === 'mermaid'
+        ? await this.configManager.get('MERMAID_USER_PROMPT', defaultUser)
+        : await this.configManager.get('SUMMARY_USER_PROMPT', defaultUser)
+    ) ?? defaultUser;
+    const stored = mode === 'mermaid' && storedRaw.includes('优先 flowchart 或 mindmap')
+      ? defaultUser
+      : storedRaw;
+    const instruction = stored.trim() || defaultUser;
     const source = this.buildSourceBlock(content);
     const templated = this.applyPromptTemplate(instruction, source.vars);
     if (templated !== null) {
@@ -121,14 +132,25 @@ export class APIClient {
     return `${source.text}\n\n要求：${instruction}`;
   }
 
-  private async buildMessages(content: ExtractedContent): Promise<Array<{ role: 'system' | 'user'; content: string }>> {
-    const storedSystem = (await this.configManager.get('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT)) ?? DEFAULT_SUMMARY_SYSTEM_PROMPT;
+  private async buildMessages(
+    content: ExtractedContent,
+    mode: GenerationMode = 'summary'
+  ): Promise<Array<{ role: 'system' | 'user'; content: string }>> {
+    const defaultSystem = mode === 'mermaid' ? DEFAULT_MERMAID_SYSTEM_PROMPT : DEFAULT_SUMMARY_SYSTEM_PROMPT;
+    const storedSystemRaw = (
+      mode === 'mermaid'
+        ? await this.configManager.get('MERMAID_SYSTEM_PROMPT', defaultSystem)
+        : await this.configManager.get('SUMMARY_SYSTEM_PROMPT', defaultSystem)
+    ) ?? defaultSystem;
+    const storedSystem = mode === 'mermaid' && storedSystemRaw === '用 Mermaid 图梳理用户给出的内容。'
+      ? defaultSystem
+      : storedSystemRaw;
     const systemPrompt = storedSystem.trim();
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
-    messages.push({ role: 'user', content: await this.generatePrompt(content) });
+    messages.push({ role: 'user', content: await this.generatePrompt(content, mode) });
     return messages;
   }
 
@@ -170,7 +192,8 @@ export class APIClient {
     content: ExtractedContent,
     onChunk: (text: string) => void,
     onComplete: () => void,
-    onError: (error: Error) => void
+    onError: (error: Error) => void,
+    options: { mode?: GenerationMode } = {}
   ): Promise<void> {
     if (!this.apiKey) {
       onError(new Error('请先配置OpenAI API Key！点击右下角设置按钮进行配置。'));
@@ -186,7 +209,7 @@ export class APIClient {
         },
         body: JSON.stringify({
           model: this.model,
-          messages: await this.buildMessages(content),
+          messages: await this.buildMessages(content, options.mode ?? 'summary'),
           stream: true,
         }),
       });
@@ -236,5 +259,55 @@ export class APIClient {
       const typedError = error instanceof Error ? error : new Error(String(error));
       onError(typedError);
     }
+  }
+
+  async repairMermaid(source: string, errorMessage: string): Promise<string> {
+    if (!this.apiKey) {
+      throw new Error('请先配置 API Key');
+    }
+
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        stream: false,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你是 Mermaid 的确定性语法修复器，只处理用户给出的单个 flowchart。',
+              '必须保留原图含义与关系方向。只使用 flowchart TD 或 flowchart LR。',
+              '节点 ID 仅用 ASCII 字母数字；标签使用双引号。禁止 mindmap、click、classDef、style、init。',
+              '只输出一个完整的 ```mermaid``` 代码块，不要解释。',
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: `这段 Mermaid 无法渲染。\n错误：${errorMessage}\n\n原图：\n\`\`\`mermaid\n${source}\n\`\`\`\n\n请输出修复后的 mermaid 代码块。`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
+    }
+
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = payload.choices?.[0]?.message?.content ?? '';
+    const match = text.match(/```mermaid[ \t]*\n([\s\S]*?)```/i);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+    const stripped = text.replace(/^```(?:mermaid)?\s*/i, '').replace(/```\s*$/, '').trim();
+    if (!stripped) {
+      throw new Error('模型没有返回可修复的 Mermaid 代码');
+    }
+    return stripped;
   }
 }

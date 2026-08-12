@@ -14,7 +14,7 @@ import {
   type AddSummaryButtonOptions,
   type ExtractedContent,
 } from '@zhihu-ai-summary/core';
-import { ConfigButton, ConfigModal, SummaryButtonWrapper, toast } from '@zhihu-ai-summary/ui';
+import { ConfigButton, ConfigModal, SummaryButtonWrapper, bindThemeRoot, loadThemeFromConfig, toast } from '@zhihu-ai-summary/ui';
 
 import { ExtensionStorage } from './storage';
 
@@ -62,7 +62,9 @@ export function runZhihuContentScript() {
   function renderConfigButton() {
     const container = document.createElement('div');
     container.id = 'zhihu-ai-config-root';
+    container.className = 'zhihu-ai-theme-root';
     document.body.appendChild(container);
+    bindThemeRoot(container);
     render(<App />, container);
   }
 
@@ -74,8 +76,9 @@ export function runZhihuContentScript() {
     options: AddSummaryButtonOptions = {}
   ) {
     const container = document.createElement('span');
-    container.className = `zhihu-ai-button-container ${buttonClass}-container`;
+    container.className = `zhihu-ai-button-container ${buttonClass}-container zhihu-ai-theme-root`;
     targetElement.appendChild(container);
+    bindThemeRoot(container);
 
     render(
       <SummaryButtonWrapper
@@ -93,7 +96,8 @@ export function runZhihuContentScript() {
     );
   }
 
-  function main() {
+  async function main() {
+    await loadThemeFromConfig(configManager);
     renderConfigButton();
 
     if (window.location.pathname.includes('/p/')) {

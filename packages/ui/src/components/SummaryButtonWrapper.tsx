@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { MarkdownFormatter, MarkdownParser, renderSummaryMarkdown, type APIClient, type ExtractedContent, type ConfigManager } from '@zhihu-ai-summary/core';
+import {
+  MarkdownFormatter,
+  MarkdownParser,
+  renderSummaryMarkdown,
+  type APIClient,
+  type ExtractedContent,
+  type ConfigManager,
+  type GenerationMode,
+} from '@zhihu-ai-summary/core';
 import { SummaryButton } from './SummaryButton';
 import { SummaryPanel } from './SummaryPanel';
 import { toast } from './Toast';
+import { renderMermaidDocument, type MermaidHostSpec } from '../mermaid/document';
 
 export interface SummaryButtonWrapperProps {
   content: ExtractedContent | (() => Promise<ExtractedContent>);
@@ -17,6 +26,15 @@ export interface SummaryButtonWrapperProps {
   panelClassName?: string;
 }
 
+interface ModeResult {
+  markdown: string;
+  html: string;
+  mermaidHosts: MermaidHostSpec[];
+  cachedAt?: number;
+}
+
+const emptyResult = (): ModeResult => ({ markdown: '', html: '', mermaidHosts: [] });
+
 export function SummaryButtonWrapper({
   content,
   buttonClass,
@@ -29,15 +47,19 @@ export function SummaryButtonWrapper({
   minLength = 0,
   panelClassName = '',
 }: SummaryButtonWrapperProps) {
+  const [openMode, setOpenMode] = useState<GenerationMode | null>(null);
+  const [activeMode, setActiveMode] = useState<GenerationMode>('summary');
   const [loading, setLoading] = useState(false);
-  const [showPanel, setShowPanel] = useState(false);
-  const [markdown, setMarkdown] = useState('');
-  const [html, setHtml] = useState('');
   const [streaming, setStreaming] = useState(false);
+  const [results, setResults] = useState<Record<GenerationMode, ModeResult>>({
+    summary: emptyResult(),
+    mermaid: emptyResult(),
+  });
   const [sourceUrl, setSourceUrl] = useState(window.location.href);
   const [modelName, setModelName] = useState('AI');
-  const [cachedAt, setCachedAt] = useState<number | undefined>();
-  const cacheSavedRef = useRef(false); // 防止重复保存缓存
+  const cacheSavedRef = useRef(false);
+
+  const current = results[openMode ?? activeMode];
 
   const hideSideColumn = () => {
     if (type !== 'answer') {
@@ -57,36 +79,43 @@ export function SummaryButtonWrapper({
     };
   };
 
-  // 点击 AI 总结按钮：切换面板开关，已有总结时只关闭，新总结时才重新请求
-  const handleButtonClick = () => {
-    if (showPanel) {
-      setShowPanel(false);
-    } else {
-      if (streaming) {
-        // 正在总结中，重新发起总结（面板打开后会显示新的流式内容）
-        startSummarize(false);
-      } else if (html || markdown) {
-        // 已有总结结果，直接打开面板
-        setShowPanel(true);
-      } else {
-        // 没有总结，发起新总结
-        startSummarize(false);
-      }
+  const handleButtonClick = (mode: GenerationMode) => {
+    if (openMode === mode) {
+      setOpenMode(null);
+      return;
     }
+    setActiveMode(mode);
+    if (streaming && activeMode === mode) {
+      void startGenerate(mode, false);
+      return;
+    }
+    const existing = results[mode];
+    if (existing.html || existing.markdown) {
+      setOpenMode(mode);
+      return;
+    }
+    void startGenerate(mode, false);
   };
 
-  const startSummarize = async (isManualClick: boolean = true, skipCache: boolean = false) => {
+  const startGenerate = async (
+    mode: GenerationMode,
+    isManualClick: boolean = true,
+    skipCache: boolean = false
+  ) => {
     cacheSavedRef.current = false;
     const restoreSideColumn = hideSideColumn();
-    setShowPanel(true);
+    setActiveMode(mode);
+    setOpenMode(mode);
     setLoading(true);
     setStreaming(true);
-    setCachedAt(undefined); // 开始新总结时清除缓存时间标记
+    setResults((prev) => ({
+      ...prev,
+      [mode]: { ...prev[mode], cachedAt: undefined },
+    }));
 
     const model = apiClient.modelName || 'AI';
     setModelName(model);
 
-    // 提取 answerUrl（用于缓存键）
     let answerUrl = sourceUrl;
     if (type === 'answer') {
       const answerItem = targetElement.closest('.ContentItem.AnswerItem');
@@ -106,23 +135,37 @@ export function SummaryButtonWrapper({
       if (!isManualClick && type === 'answer') {
         const contentLength = extractedContent.content?.length || 0;
         if (contentLength < minLength) {
-          setHtml(`<div style="color: #666; padding: 12px; text-align: center;">回答内容较短 (${contentLength} < ${minLength}字)，可手动点击上方重新总结按钮触发总结</div>`);
+          setResults((prev) => ({
+            ...prev,
+            [mode]: {
+              markdown: '',
+              html: `<div class="zhihu-ai-inline-error">回答内容较短 (${contentLength} < ${minLength}字)，可手动点击触发</div>`,
+              mermaidHosts: [],
+            },
+          }));
           setLoading(false);
           setStreaming(false);
           return;
         }
       }
 
-      // 基于 URL + 类型生成缓存键
-      const cacheKey = `${answerUrl}:${type}`;
+      const cacheKey = mode === 'mermaid' ? `${answerUrl}:${type}:mermaid` : `${answerUrl}:${type}`;
 
-      // 非手动触发且未强制跳过缓存时，先尝试从缓存读取
       if (!isManualClick && !skipCache) {
         const cached = await configManager.getCachedSummary(cacheKey);
         if (cached) {
-          setMarkdown(cached.markdown);
-          setHtml(renderSummaryMarkdown(cached.markdown));
-          setCachedAt(cached.timestamp);
+          const rendered = mode === 'mermaid'
+            ? renderMermaidDocument(cached.markdown)
+            : { html: renderSummaryMarkdown(cached.markdown), hosts: [] as MermaidHostSpec[] };
+          setResults((prev) => ({
+            ...prev,
+            [mode]: {
+              markdown: cached.markdown,
+              html: rendered.html,
+              mermaidHosts: rendered.hosts ?? [],
+              cachedAt: cached.timestamp,
+            },
+          }));
           setLoading(false);
           setStreaming(false);
           restoreSideColumn();
@@ -131,25 +174,44 @@ export function SummaryButtonWrapper({
       }
 
       let fullMarkdown = '';
-      const authorPrefix = (type === 'answer' && authorName) ? `**对 ${authorName} 的回答进行AI总结**\n\n` : '';
+      const authorPrefix = (type === 'answer' && authorName)
+        ? (mode === 'mermaid' ? `**对 ${authorName} 的回答进行图梳理**\n\n` : `**对 ${authorName} 的回答进行AI总结**\n\n`)
+        : '';
 
       await apiClient.streamCall(
         extractedContent,
         (chunk) => {
           fullMarkdown += chunk;
           const fullText = authorPrefix + fullMarkdown;
-          setMarkdown(fullText);
-          setHtml(renderSummaryMarkdown(fullText));
+          const rendered = mode === 'mermaid'
+            ? renderMermaidDocument(fullText)
+            : { html: renderSummaryMarkdown(fullText), hosts: [] as MermaidHostSpec[] };
+          setResults((prev) => ({
+            ...prev,
+            [mode]: {
+              markdown: fullText,
+              html: rendered.html,
+              mermaidHosts: rendered.hosts ?? [],
+            },
+          }));
         },
         async () => {
           const fullText = authorPrefix + fullMarkdown;
           const formatted = MarkdownFormatter.format(fullText);
-          setMarkdown(formatted);
-          setHtml(MarkdownParser.parse(formatted));
+          const rendered = mode === 'mermaid'
+            ? renderMermaidDocument(formatted)
+            : { html: MarkdownParser.parse(formatted), hosts: [] as MermaidHostSpec[] };
+          setResults((prev) => ({
+            ...prev,
+            [mode]: {
+              markdown: formatted,
+              html: rendered.html,
+              mermaidHosts: rendered.hosts ?? [],
+            },
+          }));
           setLoading(false);
           setStreaming(false);
           restoreSideColumn();
-          // 保存到缓存（只存 markdown，HTML 读取时动态生成）
           if (!cacheSavedRef.current) {
             cacheSavedRef.current = true;
             try {
@@ -163,19 +225,34 @@ export function SummaryButtonWrapper({
           }
         },
         (error) => {
-          setHtml(`<div class="zhihu-ai-inline-error">${error.message}</div>`);
+          setResults((prev) => ({
+            ...prev,
+            [mode]: {
+              markdown: '',
+              html: `<div class="zhihu-ai-inline-error">${error.message}</div>`,
+              mermaidHosts: [],
+            },
+          }));
           if (isManualClick) {
-            toast.error(error.message || '生成总结失败');
+            toast.error(error.message || '生成失败');
           }
           setLoading(false);
           setStreaming(false);
           restoreSideColumn();
-        }
+        },
+        { mode }
       );
     } catch (error) {
-      console.error('生成总结失败:', error);
-      const message = error instanceof Error ? error.message : '生成总结失败';
-      setHtml(`<div class="zhihu-ai-inline-error">${message}</div>`);
+      console.error('生成失败:', error);
+      const message = error instanceof Error ? error.message : '生成失败';
+      setResults((prev) => ({
+        ...prev,
+        [mode]: {
+          markdown: '',
+          html: `<div class="zhihu-ai-inline-error">${message}</div>`,
+          mermaidHosts: [],
+        },
+      }));
       if (isManualClick) {
         toast.error(message);
       }
@@ -185,42 +262,60 @@ export function SummaryButtonWrapper({
     }
   };
 
-  // 自动触发 - 使用 useEffect 确保只触发一次
   useEffect(() => {
     if (autoTrigger) {
-      const timer = setTimeout(() => startSummarize(false), 100);
+      const timer = setTimeout(() => startGenerate('summary', false), 100);
       return () => clearTimeout(timer);
     }
   }, [autoTrigger]);
 
-  const titleMap = {
-    answer: `AI 回答总结 (${modelName})`,
-    article: `AI 文章总结 (${modelName})`,
-    question: `AI 问题总结 (${modelName})`
+  const titleMap: Record<GenerationMode, Record<'answer' | 'article' | 'question', string>> = {
+    summary: {
+      answer: `AI 回答总结 (${modelName})`,
+      article: `AI 文章总结 (${modelName})`,
+      question: `AI 问题总结 (${modelName})`,
+    },
+    mermaid: {
+      answer: `图梳理 · 回答 (${modelName})`,
+      article: `图梳理 · 文章 (${modelName})`,
+      question: `图梳理 · 问题 (${modelName})`,
+    },
   };
 
   return (
     <>
-      <SummaryButton
-        text="AI总结"
-        loading={loading}
-        onClick={handleButtonClick}
-        className={buttonClass}
-      />
-      {showPanel && (
+      <span className="zhihu-ai-action-group">
+        <SummaryButton
+          text="AI总结"
+          loading={loading && activeMode === 'summary'}
+          onClick={() => handleButtonClick('summary')}
+          className={buttonClass}
+          variant="summary"
+        />
+        <SummaryButton
+          text="图梳理"
+          loading={loading && activeMode === 'mermaid'}
+          onClick={() => handleButtonClick('mermaid')}
+          className={`${buttonClass} zhihu-ai-summary-btn-mermaid`}
+          variant="mermaid"
+        />
+      </span>
+      {openMode && (
         <SummaryPanel
-          content={html}
-          markdown={markdown}
+          content={current.html}
+          markdown={current.markdown}
+          mermaidHosts={current.mermaidHosts}
           sourceUrl={sourceUrl}
           loading={loading}
           streaming={streaming}
-          cachedAt={cachedAt}
-          onClose={() => setShowPanel(false)}
-          onRefresh={() => startSummarize(true, true)}
-          title={titleMap[type]}
+          cachedAt={current.cachedAt}
+          onClose={() => setOpenMode(null)}
+          onRefresh={() => startGenerate(activeMode, true, true)}
+          onMermaidRepair={(source, error) => apiClient.repairMermaid(source, error)}
+          title={titleMap[activeMode][type]}
           panelType={type}
           targetElement={targetElement}
-          className={panelClassName}
+          className={`${panelClassName} ${openMode === 'mermaid' ? 'is-mermaid' : ''}`.trim()}
         />
       )}
     </>

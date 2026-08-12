@@ -1,5 +1,6 @@
 import { render } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
+import { useThemeRoot } from '../useThemeRoot';
 
 export interface ConfirmOptions {
   title: string;
@@ -25,6 +26,7 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const confirmBtnRef = useRef<HTMLButtonElement | null>(null);
   const resolvedRef = useRef(false);
+  const themeRef = useThemeRoot<HTMLDivElement>();
 
   const resolveOnce = (result: boolean) => {
     if (resolvedRef.current) {
@@ -73,6 +75,7 @@ export function ConfirmModal({
         />
       )}
       <div
+        ref={themeRef}
         className="zhihu-ai-modal-content zhihu-ai-confirm-modal"
         role="dialog"
         aria-modal="true"

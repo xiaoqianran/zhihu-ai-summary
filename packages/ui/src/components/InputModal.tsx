@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks';
+import { useThemeRoot } from '../useThemeRoot';
 
 
 interface InputModalProps {
@@ -21,6 +22,7 @@ export function InputModal({
   onCancel
 }: InputModalProps) {
   const [value, setValue] = useState(defaultValue);
+  const themeRef = useThemeRoot<HTMLDivElement>();
 
   const handleConfirm = () => {
     if (value.trim()) {
@@ -37,7 +39,7 @@ export function InputModal({
 
   return (
     <div className="zhihu-ai-modal" onClick={onCancel}>
-      <div className="zhihu-ai-modal-content zhihu-ai-input-modal" onClick={(e) => e.stopPropagation()}>
+      <div ref={themeRef} className="zhihu-ai-modal-content zhihu-ai-input-modal" onClick={(e) => e.stopPropagation()}>
         <div className="zhihu-ai-modal-header">
           <div className="zhihu-ai-modal-title">{title}</div>
           <button className="zhihu-ai-modal-close" onClick={onCancel}>×</button>

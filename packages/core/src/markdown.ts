@@ -531,3 +531,31 @@ export class MarkdownFormatter {
 export function renderSummaryMarkdown(markdown: string): string {
   return MarkdownParser.parse(MarkdownFormatter.format(markdown));
 }
+
+export interface ExtractedMermaid {
+  markdown: string;
+  blocks: string[];
+}
+
+export function cleanMermaidSource(source: string): string {
+  let text = source.replace(/\r\n?/g, '\n').replace(/^\uFEFF/, '');
+  text = text.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+  text = text.replace(/^```(?:mermaid)?\s*/i, '').replace(/\s*```$/i, '');
+  text = text.replace(/\u2192/g, '-->').replace(/\u21D2/g, '==>');
+  return text.replace(/^\s+|\s+$/g, '');
+}
+
+export function extractMermaidBlocks(markdown: string): ExtractedMermaid {
+  const blocks: string[] = [];
+  const normalized = MarkdownParser.unwrapMarkdownFences(markdown);
+  const replaced = normalized.replace(/```mermaid[ \t]*\n([\s\S]*?)```/gi, (_match, code: string) => {
+    const cleaned = cleanMermaidSource(code);
+    if (!cleaned) {
+      return '';
+    }
+    const index = blocks.length;
+    blocks.push(cleaned);
+    return `\n\n%%ZHIHU_AI_MERMAID_${index}%%\n\n`;
+  });
+  return { markdown: replaced, blocks };
+}

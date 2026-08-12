@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import {
+  DEFAULT_MERMAID_SYSTEM_PROMPT,
+  DEFAULT_MERMAID_USER_PROMPT,
   DEFAULT_SUMMARY_SYSTEM_PROMPT,
   DEFAULT_SUMMARY_USER_PROMPT,
   normalizeChatCompletionsUrl,
@@ -8,6 +10,19 @@ import type { Account, ConfigManager, APIClient } from '@zhihu-ai-summary/core';
 import { toast } from './Toast';
 import { InputModal } from './InputModal';
 import { confirm } from './ConfirmModal';
+import {
+  CATPPUCCIN_ACCENTS,
+  CATPPUCCIN_FLAVORS,
+  DEFAULT_THEME_ACCENT,
+  DEFAULT_THEME_FLAVOR,
+  getAccentColor,
+  isCatppuccinAccent,
+  isCatppuccinFlavor,
+  setTheme,
+  type CatppuccinAccent,
+  type CatppuccinFlavor,
+} from '../theme';
+import { useThemeRoot } from '../useThemeRoot';
 
 interface ConfigModalProps {
   configManager: ConfigManager;
@@ -34,7 +49,12 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
   const [cacheStorageSize, setCacheStorageSize] = useState('');
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SUMMARY_SYSTEM_PROMPT);
   const [userPrompt, setUserPrompt] = useState(DEFAULT_SUMMARY_USER_PROMPT);
+  const [mermaidSystemPrompt, setMermaidSystemPrompt] = useState(DEFAULT_MERMAID_SYSTEM_PROMPT);
+  const [mermaidUserPrompt, setMermaidUserPrompt] = useState(DEFAULT_MERMAID_USER_PROMPT);
+  const [themeFlavor, setThemeFlavor] = useState<CatppuccinFlavor>(DEFAULT_THEME_FLAVOR);
+  const [themeAccent, setThemeAccent] = useState<CatppuccinAccent>(DEFAULT_THEME_ACCENT);
   const [showAccountForm, setShowAccountForm] = useState(false);
+  const modalRef = useThemeRoot<HTMLDivElement>();
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [copyingAccountId, setCopyingAccountId] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -61,6 +81,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
     const storageSize = await configManager.getCacheStorageSize();
     const storedSystemPrompt = await configManager.get('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT);
     const storedUserPrompt = await configManager.get('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT);
+    const storedMermaidSystem = await configManager.get('MERMAID_SYSTEM_PROMPT', DEFAULT_MERMAID_SYSTEM_PROMPT);
+    const storedMermaidUser = await configManager.get('MERMAID_USER_PROMPT', DEFAULT_MERMAID_USER_PROMPT);
 
     setAccounts(accs);
     setCurrentAccountId(currentId);
@@ -71,6 +93,16 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
     setCacheStorageSize(storageSize);
     setSystemPrompt(storedSystemPrompt ?? DEFAULT_SUMMARY_SYSTEM_PROMPT);
     setUserPrompt(storedUserPrompt ?? DEFAULT_SUMMARY_USER_PROMPT);
+    setMermaidSystemPrompt(storedMermaidSystem ?? DEFAULT_MERMAID_SYSTEM_PROMPT);
+    setMermaidUserPrompt(storedMermaidUser ?? DEFAULT_MERMAID_USER_PROMPT);
+
+    const storedFlavor = await configManager.get('UI_THEME_FLAVOR', DEFAULT_THEME_FLAVOR);
+    const storedAccent = await configManager.get('UI_THEME_ACCENT', DEFAULT_THEME_ACCENT);
+    const flavor = isCatppuccinFlavor(storedFlavor ?? '') ? storedFlavor as CatppuccinFlavor : DEFAULT_THEME_FLAVOR;
+    const accent = isCatppuccinAccent(storedAccent ?? '') ? storedAccent as CatppuccinAccent : DEFAULT_THEME_ACCENT;
+    setThemeFlavor(flavor);
+    setThemeAccent(accent);
+    setTheme(flavor, accent);
   };
 
   const handleSelectAccount = async (accountId: string) => {
@@ -135,15 +167,24 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
     try {
       const nextSystemPrompt = systemPrompt.trim();
       const nextUserPrompt = userPrompt.trim() || DEFAULT_SUMMARY_USER_PROMPT;
+      const nextMermaidSystem = mermaidSystemPrompt.trim() || DEFAULT_MERMAID_SYSTEM_PROMPT;
+      const nextMermaidUser = mermaidUserPrompt.trim() || DEFAULT_MERMAID_USER_PROMPT;
       const ok1 = await configManager.set('AUTO_SUMMARIZE', autoSummarize);
       const ok2 = await configManager.set('MIN_ANSWER_LENGTH', minAnswerLength);
       const ok3 = await configManager.set('SUMMARY_CACHE_SIZE', cacheSize);
       const ok4 = await configManager.set('SUMMARY_SYSTEM_PROMPT', nextSystemPrompt);
       const ok5 = await configManager.set('SUMMARY_USER_PROMPT', nextUserPrompt);
-      if (!ok1 || !ok2 || !ok3 || !ok4 || !ok5) {
+      const ok6 = await configManager.set('UI_THEME_FLAVOR', themeFlavor);
+      const ok7 = await configManager.set('UI_THEME_ACCENT', themeAccent);
+      const ok8 = await configManager.set('MERMAID_SYSTEM_PROMPT', nextMermaidSystem);
+      const ok9 = await configManager.set('MERMAID_USER_PROMPT', nextMermaidUser);
+      if (!ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 || !ok7 || !ok8 || !ok9) {
         toast.error('设置保存失败');
         return;
       }
+      setTheme(themeFlavor, themeAccent);
+      setMermaidSystemPrompt(nextMermaidSystem);
+      setMermaidUserPrompt(nextMermaidUser);
       setSystemPrompt(nextSystemPrompt);
       setUserPrompt(nextUserPrompt);
       toast.success('设置已保存！');
@@ -232,30 +273,22 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
           aria-label="关闭弹窗"
           onClick={onClose}
         />
-        <div className="zhihu-ai-modal-content" role="dialog" aria-modal="true" aria-label={appName} tabIndex={-1}>
+        <div ref={modalRef} className="zhihu-ai-modal-content" role="dialog" aria-modal="true" aria-label={appName} tabIndex={-1}>
           <div className="zhihu-ai-modal-header">
             <div className="zhihu-ai-modal-title">
-              <svg width="24" height="24" viewBox="0 0 1024 1024" fill="#1772f6">
-                <title>{appName}</title>
-                <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64z m0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z" />
-                <path d="M464 336a48 48 0 1 0 96 0 48 48 0 1 0-96 0z m72 112h-48c-4.4 0-8 3.6-8 8v272c0 4.4 3.6 8 8 8h48c4.4 0 8-3.6 8-8V456c0-4.4-3.6-8-8-8z" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3.2l.86 4.18L17 8.2l-4.14.82L12 13.2l-.86-4.18L7 8.2l4.14-.82L12 3.2z" fill="currentColor" />
+                <path d="M18.2 13.6l.4 1.96 1.96.4-1.96.4-.4 1.96-.4-1.96-1.96-.4 1.96-.4.4-1.96z" fill="currentColor" opacity="0.7" />
               </svg>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div style={{ fontSize: '16px', fontWeight: 600, color: '#1a1a1a' }}>
-                  {appName}
-                </div>
-                <div style={{ fontSize: '12px', color: '#8a8a8a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>作者: {author}</span>
-                  <span>•</span>
+              <div className="zhihu-ai-brand-copy">
+                <div className="zhihu-ai-brand-name">{appName}</div>
+                <div className="zhihu-ai-brand-meta">
+                  <span>作者 {author}</span>
+                  <span aria-hidden="true">·</span>
                   <a
                     href={homepage}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{
-                      color: '#1772f6',
-                      textDecoration: 'none',
-                      cursor: 'pointer'
-                    }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     v{version}
@@ -298,8 +331,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
               <div className="zhihu-ai-tab-content active">
                 <div className="zhihu-ai-account-list">
                   {accounts.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px 20px', color: '#999' }}>
-                      暂无账号，请添加新账号
+                    <div className="zhihu-ai-empty">
+                      还没有账号。先添加一个，再开始总结。
                     </div>
                   ) : (
                     accounts.map(account => (
@@ -377,24 +410,24 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                 <div className="zhihu-ai-config-panel">
                   <div className="zhihu-ai-config-item">
                     <div className="zhihu-ai-config-label">导入导出配置</div>
-                    <div className="zhihu-ai-config-btn-group" style={{ marginTop: '8px' }}>
+                    <div className="zhihu-ai-config-btn-group">
                       <button
                         type="button"
                         className="zhihu-ai-config-btn-half zhihu-ai-config-btn-secondary"
                         onClick={handleExportConfig}
                       >
-                        📋 复制配置
+                        复制配置
                       </button>
                       <button
                         type="button"
                         className="zhihu-ai-config-btn-half zhihu-ai-config-btn-warning"
                         onClick={() => setShowImportModal(true)}
                       >
-                        📥 导入配置
+                        导入配置
                       </button>
                     </div>
-                    <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
-                      导入配置将覆盖现有设置，确定要继续吗？
+                    <div className="zhihu-ai-settings-hint">
+                      导入会覆盖当前账号与设置，请先确认。
                     </div>
                   </div>
                 </div>
@@ -403,70 +436,67 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
 
             {activeTab === 'settings' && (
               <div className="zhihu-ai-tab-content active">
-                <div className="zhihu-ai-config-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: '280px', border: '1px solid #e5e5e5', borderRadius: '8px', padding: '16px', background: '#fff' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#1a1a1a', marginBottom: '12px' }}>自动总结</div>
-                      <div className="zhihu-ai-config-item" style={{ marginBottom: '12px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
+                <div className="zhihu-ai-config-panel zhihu-ai-settings-stack">
+                  <div className="zhihu-ai-settings-grid">
+                    <div className="zhihu-ai-settings-card">
+                      <div className="zhihu-ai-settings-card-title">自动总结</div>
+                      <div className="zhihu-ai-config-item">
+                        <label className="zhihu-ai-check-row">
                           <input
                             type="checkbox"
                             checked={autoSummarize}
                             onChange={(e) => setAutoSummarize((e.target as HTMLInputElement).checked)}
                           />
-                          <span style={{ fontSize: '13px', color: '#333' }}>自动总结</span>
+                          <span>打开后自动总结</span>
                         </label>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '4px', marginLeft: '24px' }}>
-                          页面加载后自动调用AI总结文章和问题中的各个回答
+                        <div className="zhihu-ai-field-hint">
+                          页面就绪后，自动梳理文章与回答。
                         </div>
                       </div>
-                      <div className="zhihu-ai-config-item" style={{ marginBottom: 0 }}>
-                        <label style={{ fontSize: '13px', color: '#333', marginBottom: '6px', display: 'block' }}>回答最少字数</label>
+                      <div className="zhihu-ai-config-item is-flush">
+                        <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-min-length">回答最少字数</label>
                         <input
+                          id="zhihu-ai-min-length"
                           type="number"
                           className="zhihu-ai-config-input"
                           value={minAnswerLength}
                           min="0"
                           placeholder="200"
-                          style={{ width: '95%', fontSize: '13px', padding: '8px 10px' }}
                           onInput={(e) => setMinAnswerLength(parseInt((e.target as HTMLInputElement).value) || 200)}
                         />
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                          回答字数少于此值时不自动总结
+                        <div className="zhihu-ai-field-hint">
+                          短于这个字数的回答不会自动总结。
                         </div>
                       </div>
                     </div>
-                    <div style={{ flex: 1, minWidth: '280px', border: '1px solid #e5e5e5', borderRadius: '8px', padding: '16px', background: '#fff' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#1a1a1a', marginBottom: '12px' }}>缓存</div>
-                      <div className="zhihu-ai-config-item" style={{ marginBottom: '8px' }}>
-                        <div style={{ fontSize: '12px', color: '#666' }}>
-                          缓存已总结的结果，下次访问相同内容时直接显示
+                    <div className="zhihu-ai-settings-card">
+                      <div className="zhihu-ai-settings-card-title">缓存</div>
+                      <div className="zhihu-ai-config-item">
+                        <div className="zhihu-ai-settings-hint">
+                          同一篇内容再次打开时，直接显示上次结果。
                         </div>
                       </div>
-                      <div className="zhihu-ai-config-item" style={{ marginBottom: '8px' }}>
-                        <div>
-                          <label style={{ fontSize: '13px', color: '#333', display: 'block' }}>最大条数</label>
-                          <input
-                            type="number"
-                            className="zhihu-ai-config-input"
-                            value={cacheSize}
-                            min="0"
-                            max="1000"
-                            style={{ width: '95%', fontSize: '13px', padding: '6px 8px' }}
-                            onInput={(e) => setCacheSize(parseInt((e.target as HTMLInputElement).value) || 100)}
-                          />
+                      <div className="zhihu-ai-config-item">
+                        <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-cache-size">最大条数</label>
+                        <input
+                          id="zhihu-ai-cache-size"
+                          type="number"
+                          className="zhihu-ai-config-input"
+                          value={cacheSize}
+                          min="0"
+                          max="1000"
+                          onInput={(e) => setCacheSize(parseInt((e.target as HTMLInputElement).value) || 100)}
+                        />
+                      </div>
+                      <div className="zhihu-ai-config-item">
+                        <div className="zhihu-ai-settings-hint">
+                          已缓存 {cacheCount} 条 · {cacheStorageSize}
                         </div>
                       </div>
-                      <div className="zhihu-ai-config-item" style={{ marginBottom: '8px' }}>
-                        <div style={{ fontSize: '12px', color: '#666' }}>
-                          已缓存 {cacheCount} 条 (占用{cacheStorageSize})
-                        </div>
-                      </div>
-                      <div className="zhihu-ai-config-item" style={{ marginBottom: 0 }}>
+                      <div className="zhihu-ai-config-item is-flush">
                         <button
                           type="button"
                           className="zhihu-ai-config-btn-warning"
-                          style={{ padding: '6px 16px', fontSize: '13px' }}
                           onClick={async () => {
                             const ok = await confirm({
                               title: '清空缓存',
@@ -489,9 +519,54 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                     </div>
                   </div>
 
-                  <div style={{ border: '1px solid #e5e5e5', borderRadius: '8px', padding: '16px', background: '#fff' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#1a1a1a' }}>提示词</div>
+                  <div className="zhihu-ai-settings-card">
+                    <div className="zhihu-ai-settings-card-title">外观 · Catppuccin</div>
+                    <div className="zhihu-ai-config-item">
+                      <div className="zhihu-ai-config-label">口味</div>
+                      <div className="zhihu-ai-flavor-grid">
+                        {CATPPUCCIN_FLAVORS.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`zhihu-ai-flavor-chip${themeFlavor === item.id ? ' is-active' : ''}`}
+                            onClick={() => {
+                              setThemeFlavor(item.id);
+                              setTheme(item.id, themeAccent);
+                            }}
+                          >
+                            <strong>{item.label}</strong>
+                            <span>{item.hint}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="zhihu-ai-config-item is-flush">
+                      <div className="zhihu-ai-config-label">强调色</div>
+                      <div className="zhihu-ai-accent-grid">
+                        {CATPPUCCIN_ACCENTS.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`zhihu-ai-accent-dot${themeAccent === item.id ? ' is-active' : ''}`}
+                            title={item.label}
+                            aria-label={item.label}
+                            style={{ background: getAccentColor(themeFlavor, item.id) }}
+                            onClick={() => {
+                              setThemeAccent(item.id);
+                              setTheme(themeFlavor, item.id);
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="zhihu-ai-field-hint">
+                        选中 {themeAccent}。外观只作用于本扩展，不受 Dark Reader 或知乎日夜间切换影响。
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="zhihu-ai-settings-card">
+                    <div className="zhihu-ai-prompt-head">
+                      <div className="zhihu-ai-settings-card-title">提示词</div>
                       <button
                         type="button"
                         className="zhihu-ai-prompt-reset"
@@ -504,7 +579,7 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                       </button>
                     </div>
                     <div className="zhihu-ai-config-item">
-                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-system-prompt" style={{ fontSize: '13px' }}>系统提示词</label>
+                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-system-prompt">系统提示词</label>
                       <textarea
                         id="zhihu-ai-system-prompt"
                         className="zhihu-ai-config-textarea"
@@ -514,8 +589,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                         onInput={(e) => setSystemPrompt((e.target as HTMLTextAreaElement).value)}
                       />
                     </div>
-                    <div className="zhihu-ai-config-item" style={{ marginBottom: 0 }}>
-                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-user-prompt" style={{ fontSize: '13px' }}>用户要求</label>
+                    <div className="zhihu-ai-config-item is-flush">
+                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-user-prompt">用户要求</label>
                       <textarea
                         id="zhihu-ai-user-prompt"
                         className="zhihu-ai-config-textarea"
@@ -524,8 +599,8 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                         placeholder={DEFAULT_SUMMARY_USER_PROMPT}
                         onInput={(e) => setUserPrompt((e.target as HTMLTextAreaElement).value)}
                       />
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '6px', lineHeight: 1.6 }}>
-                        默认只要「梳理内容」。正文会自动附在后面。若自己写完整模板，可用
+                      <div className="zhihu-ai-field-hint">
+                        默认只要「梳理内容」。正文会自动附在后面。完整模板可用
                         {' '}
                         <code>{'{{title}}'}</code>
                         {' '}
@@ -541,9 +616,49 @@ export function ConfigModal({ configManager, apiClient, onClose }: ConfigModalPr
                     </div>
                   </div>
 
-                  {/* 保存按钮 */}
-                  <div className="zhihu-ai-config-item">
-                    <button type="button" className="zhihu-ai-config-save" onClick={handleSaveSettings} style={{ width: '100%', padding: '12px', fontSize: '14px' }}>
+                  <div className="zhihu-ai-settings-card">
+                    <div className="zhihu-ai-prompt-head">
+                      <div className="zhihu-ai-settings-card-title">图梳理提示词</div>
+                      <button
+                        type="button"
+                        className="zhihu-ai-prompt-reset"
+                        onClick={() => {
+                          setMermaidSystemPrompt(DEFAULT_MERMAID_SYSTEM_PROMPT);
+                          setMermaidUserPrompt(DEFAULT_MERMAID_USER_PROMPT);
+                        }}
+                      >
+                        恢复默认
+                      </button>
+                    </div>
+                    <div className="zhihu-ai-config-item">
+                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-mermaid-system-prompt">系统提示词</label>
+                      <textarea
+                        id="zhihu-ai-mermaid-system-prompt"
+                        className="zhihu-ai-config-textarea"
+                        value={mermaidSystemPrompt}
+                        rows={3}
+                        placeholder={DEFAULT_MERMAID_SYSTEM_PROMPT}
+                        onInput={(e) => setMermaidSystemPrompt((e.target as HTMLTextAreaElement).value)}
+                      />
+                    </div>
+                    <div className="zhihu-ai-config-item is-flush">
+                      <label className="zhihu-ai-config-label" htmlFor="zhihu-ai-mermaid-user-prompt">用户要求</label>
+                      <textarea
+                        id="zhihu-ai-mermaid-user-prompt"
+                        className="zhihu-ai-config-textarea"
+                        value={mermaidUserPrompt}
+                        rows={4}
+                        placeholder={DEFAULT_MERMAID_USER_PROMPT}
+                        onInput={(e) => setMermaidUserPrompt((e.target as HTMLTextAreaElement).value)}
+                      />
+                      <div className="zhihu-ai-field-hint">
+                        用于「图梳理」。请让模型把图放进 mermaid 代码块。
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="zhihu-ai-config-item is-flush">
+                    <button type="button" className="zhihu-ai-config-save" onClick={handleSaveSettings}>
                       保存设置
                     </button>
                   </div>
@@ -612,6 +727,7 @@ function AccountFormModal({
   onClose,
   onSave,
 }: AccountFormModalProps) {
+  const formModalRef = useThemeRoot<HTMLDivElement>();
   const sourceAccount = copyingAccountId
     ? accounts.find(acc => acc.id === copyingAccountId)
     : editingAccountId
@@ -705,6 +821,7 @@ function AccountFormModal({
         onClick={onClose}
       />
       <div
+        ref={formModalRef}
         className="zhihu-ai-modal-content"
         style={{ maxWidth: '500px' }}
         role="dialog"
@@ -792,7 +909,7 @@ function AccountFormModal({
               </div>
             )}
             {testing && (
-              <div className="zhihu-ai-test-result" style={{ background: '#f0f0f0', border: '1px solid #d9d9d9', color: '#666' }}>
+              <div className="zhihu-ai-test-result is-pending">
                 正在测试连接...
               </div>
             )}

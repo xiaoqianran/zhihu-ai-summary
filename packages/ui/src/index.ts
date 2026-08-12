@@ -9,6 +9,15 @@ export { ConfirmModal, confirm } from './components/ConfirmModal';
 export type { ToastType } from './components/Toast';
 export type { SummaryButtonWrapperProps } from './components/SummaryButtonWrapper';
 export type { ConfirmOptions } from './components/ConfirmModal';
+export {
+  loadThemeFromConfig,
+  bindThemeRoot,
+  setTheme,
+  getTheme,
+  CATPPUCCIN_FLAVORS,
+  CATPPUCCIN_ACCENTS,
+} from './theme';
+export type { CatppuccinFlavor, CatppuccinAccent } from './theme';
 
 // 导出样式
 import './styles.css';

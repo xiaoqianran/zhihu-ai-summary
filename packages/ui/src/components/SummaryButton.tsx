@@ -5,19 +5,37 @@ interface SummaryButtonProps {
   loading?: boolean;
   onClick: () => void;
   className?: string;
+  variant?: 'summary' | 'mermaid';
 }
 
-export function SummaryButton({ text, loading, onClick, className = '' }: SummaryButtonProps) {
+export function SummaryButton({ text, loading, onClick, className = '', variant = 'summary' }: SummaryButtonProps) {
   return (
     <button
+      type="button"
       className={`zhihu-ai-summary-btn ${className}`}
       onClick={onClick}
       disabled={loading}
     >
-      <svg class="icon" viewBox="0 0 1024 1024" fill="currentColor" width="16" height="16">
-        <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm0 820c-205.4 0-372-166.6-372-372s166.6-372 372-372 372 166.6 372 372-166.6 372-372 372z"/>
-        <path d="M464 336a48 48 0 1 0 96 0 48 48 0 1 0-96 0zm72 112h-48c-4.4 0-8 3.6-8 8v272c0 4.4 3.6 8 8 8h48c4.4 0 8-3.6 8-8V456c0-4.4-3.6-8-8-8z"/>
-      </svg>
+      {variant === 'mermaid' ? (
+        <svg className="icon" viewBox="0 0 24 24" fill="none" width="14" height="14" aria-hidden="true">
+          <circle cx="6" cy="7" r="2.1" stroke="currentColor" strokeWidth="1.6" />
+          <circle cx="18" cy="7" r="2.1" stroke="currentColor" strokeWidth="1.6" />
+          <circle cx="12" cy="17" r="2.1" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M8 8.2l3.2 6.4M16 8.2l-3.2 6.4" stroke="currentColor" strokeWidth="1.6" />
+        </svg>
+      ) : (
+        <svg className="icon" viewBox="0 0 24 24" fill="none" width="14" height="14" aria-hidden="true">
+          <path
+            d="M12 3.2l.86 4.18L17 8.2l-4.14.82L12 13.2l-.86-4.18L7 8.2l4.14-.82L12 3.2z"
+            fill="currentColor"
+          />
+          <path
+            d="M18.2 13.4l.42 2.04 2.08.4-2.08.4-.42 2.04-.42-2.04-2.08-.4 2.08-.4.42-2.04z"
+            fill="currentColor"
+            opacity="0.75"
+          />
+        </svg>
+      )}
       {text}
     </button>
   );

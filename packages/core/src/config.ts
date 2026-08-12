@@ -21,6 +21,28 @@ export interface CachedSummary {
 
 export const DEFAULT_SUMMARY_SYSTEM_PROMPT = '梳理内容';
 export const DEFAULT_SUMMARY_USER_PROMPT = '梳理内容';
+export const DEFAULT_MERMAID_SYSTEM_PROMPT = [
+  '你是知乎内容的 Mermaid 学习图谱生成器。把用户提供的文章、问题或回答转成可复习的流程图，不要画成从中心往外炸开的知识树。',
+  '',
+  '【来源边界】',
+  '1. 只使用本次提供的正文。不要补充外部知识、常识背景或原文没有支持的结论。',
+  '2. 人名、数字、术语无法确认时，在节点文字中标记「识别存疑」，不要猜测替换。',
+  '3. 可见标题与节点文字使用简体中文；专有名词、模型名、API、代码可保留必要原文。',
+  '',
+  '【输出目标】',
+  '4. 用少量、用途明确的图重建原文中的关系，不按原文逐句复述，也不要做成放射状脑图。',
+  '5. 通常输出 2—5 张图。内容足够时先给一张知识总览；其余只从流程/论证链、因果/依赖、对比/决策、学习路径、自测关系中选择原文真正支持的类型。',
+  '6. 每张图保持单一主题，建议 8—18 个节点。保留核心概念、关系、步骤、条件、边界、例子、风险和结论。',
+  '',
+  '【严格输出格式】',
+  '7. 只允许一个 Markdown 一级标题。其后每张图使用一个二级标题和一个独立的 ```mermaid``` 代码块。',
+  '8. 除一级/二级标题与 Mermaid 代码块外，不要输出普通段落、列表、前言或思考过程。',
+  '9. 只使用 flowchart TD 或 flowchart LR。禁止 mindmap、timeline、xychart、architecture-beta、click、classDef、style、init 与实验语法。',
+  '10. 节点 ID 只用 ASCII 字母和数字；可见文字放进双引号标签，例如 A1["核心概念"]。标签内避免英文双引号、反引号和花括号，只在必要时使用 <br/>。',
+].join('\n');
+export const DEFAULT_MERMAID_USER_PROMPT = '请严格按照系统提示，把下面的知乎内容转换成 Mermaid 学习图谱。只使用 flowchart TD 或 flowchart LR，不要输出 mindmap 或从中心向外发散的知识树。';
+
+export type GenerationMode = 'summary' | 'mermaid';
 
 // 配置键到值的映射（用于强类型 get/set）
 export interface ConfigValueMap {
@@ -32,6 +54,10 @@ export interface ConfigValueMap {
   SUMMARY_CACHE_SIZE: number;
   SUMMARY_SYSTEM_PROMPT: string;
   SUMMARY_USER_PROMPT: string;
+  UI_THEME_FLAVOR: string;
+  UI_THEME_ACCENT: string;
+  MERMAID_SYSTEM_PROMPT: string;
+  MERMAID_USER_PROMPT: string;
 }
 
 export type ConfigKey = keyof ConfigValueMap;
@@ -99,6 +125,10 @@ export class ConfigManager {
       SUMMARY_CACHE_SIZE: (await this.get('SUMMARY_CACHE_SIZE', 100)) ?? 100,
       SUMMARY_SYSTEM_PROMPT: (await this.get('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT)) ?? DEFAULT_SUMMARY_SYSTEM_PROMPT,
       SUMMARY_USER_PROMPT: (await this.get('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT)) ?? DEFAULT_SUMMARY_USER_PROMPT,
+      UI_THEME_FLAVOR: (await this.get('UI_THEME_FLAVOR', 'mocha')) ?? 'mocha',
+      UI_THEME_ACCENT: (await this.get('UI_THEME_ACCENT', 'mauve')) ?? 'mauve',
+      MERMAID_SYSTEM_PROMPT: (await this.get('MERMAID_SYSTEM_PROMPT', DEFAULT_MERMAID_SYSTEM_PROMPT)) ?? DEFAULT_MERMAID_SYSTEM_PROMPT,
+      MERMAID_USER_PROMPT: (await this.get('MERMAID_USER_PROMPT', DEFAULT_MERMAID_USER_PROMPT)) ?? DEFAULT_MERMAID_USER_PROMPT,
     };
     return JSON.stringify(configs, null, 2);
   }
@@ -121,6 +151,10 @@ export class ConfigManager {
     await this.set('MIN_ANSWER_LENGTH', 200);
     await this.set('SUMMARY_SYSTEM_PROMPT', DEFAULT_SUMMARY_SYSTEM_PROMPT);
     await this.set('SUMMARY_USER_PROMPT', DEFAULT_SUMMARY_USER_PROMPT);
+    await this.set('UI_THEME_FLAVOR', 'mocha');
+    await this.set('UI_THEME_ACCENT', 'mauve');
+    await this.set('MERMAID_SYSTEM_PROMPT', DEFAULT_MERMAID_SYSTEM_PROMPT);
+    await this.set('MERMAID_USER_PROMPT', DEFAULT_MERMAID_USER_PROMPT);
   }
 
   // 获取缓存的总结结果
